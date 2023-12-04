@@ -1,33 +1,28 @@
+#!/usr/bin/env python3
 """
-shrekScalibrate.py
-
-aschauer@uw.edu - 20220629
-
 This script opens the shrekS_analysis_log.csv for sample diagnosis and calibration.
     Figures are used to help assess run quality. Ultimately, 34S isotope composition
     delta values are normalized to the VCDT scale and exported along with sulfur
     quantity and other salient bits.
 
-Change log:
-    20220629 - saved from shrekScalibrate.py, linting
-    20220701 - continue development
-    20220704 - continue development, linting, checking Sqty for empty tins
-    20220706 - created report so as to save absolutely everything related to a
-        dataset (data files, python scripts, figures, notes).
-    20220725 - adjusted axis scale for empty tin y axis, commented out timediff bits
-    20220726 - added peak start figure, FOUND MAJOR ERROR IN VCDT CALCULATION and fixed it - YIKES
-    20220906 - removed diagnostic type figures after creating shrekSlog.py
-    20220908 - finished up version 1 of report
-    20221001 - maybe fixed bug in zip file creation (*.zip.zip); now moving zip file instead of copying
-    20221122 - make sure existing zip file is deleted before moving to report directory
-    20231204 - far enough along from previous versions that I want to upload it
-
-ToDo:
-
-
-Tips:
-    Analysis[blank['index']][np.nonzero(AreaAll_sam[blank['index']]>15)] # returns the serial number of empty_tins with peak area greater than 15
+    version 1.x - 2019.03.01 - matlab versions used while running shrek in the way Julien Foriel originally set it up (50 ug of Sulfur target).
+        The last matlab script under this scenario is saved as shrekS_Archive_190311.m. Note that these versions were a single script (both shrekS
+        and shrekScalibrate).
+    version 2.x - 2020.08.17 - matlab versions using the new DIY cryofocusing technique. Code is now separated into a mass spec file reader (shrekS)
+        and a log file reader / sample calibrator (shrekScalibrate). This eventually migrated to python late in Urusula's project and during Alli's
+        project. Ursula developed a separate python script while andy continued to limp along with matlab. Andy eventually incorporated much of Urusula's
+        script during Alli's project.
+    version 3.0 - 2023.12.04 - GasBench versions start here. Stopped using shrekS_standards in favor of lab wide reference_materials.json.
 """
+
+__authors__ = "Andy Schauer, Ursula Jongebloed"
+__email__ = "aschauer@uw.edu"
+__last_modified__ = "2023-12-04"
+__version__ = "3.0"
+__copyright__ = "Copyright 2023, Andy Schauer"
+__license__ = "Apache 2.0"
+__acknowledgements__ = "Alli Moon, Drew Pronovost"
+
 
 
 # -------------------- imports --------------------

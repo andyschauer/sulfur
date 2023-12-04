@@ -1,28 +1,27 @@
+#!/usr/bin/env python3
 """
-shrekS.py
+This script opens raw sulfur data files from the mass spectrometer Shrek, organizes based on peaks (e.g.
+    working gas vs sample), and writes the reduced data to shrekS_analysis_log.csv. Initial quality control
+    is completed (e.g. saturated detectors). If analyses are deemed erroneous, a flag is set to zero, but the
+    data are still written to the log file.
 
-aschauer@uw.edu - 20210701
-
-This script opens raw sulfur data files from shrek and writes reduced data to shrekS_analysis_log.csv
-
-Change log:
-   20210701 - saved from loraxGB.py
-   20210714 - added condition to Information parsing when one row in Information column is empty
-   20220616 - linting and getting ready for another session of sulfur on shrek
-   20220629 - finished getting rid of bugs introduced after linting
-   20220705 - added a few print statements to indicate what is happening to user
-   20220726 - fixed currnote bug and other issues around the commenting of rare peak number samples
-   20220903 - added ability to calculate Sqty if a balance mass was entered into Amount rather than the straight Sqty
-   20220906 - added project
-   20220920 - bug in mass from balance addition, fixed
-   20221123 - simplify directory naming and organization, some linting
-   20231025 - started updating based on GasBench method development
-   20231028 - refactored to make similar to shrekCN.py which is more readable, and makes use of smarter dictionaries
-   20231129 - switched to reference_materials.json
-
-ToDo:
-
+    version 1.x - 2019.03.01 - matlab versions used while running shrek in the way Julien Foriel originally set it up (50 ug of Sulfur target).
+        The last matlab script under this scenario is saved as shrekS_Archive_190311.m. Note that these versions were a single script (both shrekS
+        and shrekScalibrate).
+    version 2.x - 2020.08.17 - matlab versions using the new DIY cryofocusing technique. Code is now separated into a mass spec file reader (shrekS)
+        and a log file reader / sample calibrator (shrekScalibrate). This eventually migrated to python late in Urusula's project and during Alli's
+        project.
+    version 3.0 - 2023.12.04 - GasBench versions start here. Stopped using shrekS_standards in favor of lab wide reference_materials.json.
 """
+
+__authors__ = "Andy Schauer, Ursula Jongebloed"
+__email__ = "aschauer@uw.edu"
+__last_modified__ = "2023-12-04"
+__version__ = "3.0"
+__copyright__ = "Copyright 2023, Andy Schauer"
+__license__ = "Apache 2.0"
+__acknowledgements__ = "Alli Moon, Drew Pronovost"
+
 
 
 # -------------------- imports --------------------

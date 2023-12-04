@@ -1,13 +1,18 @@
+#!/usr/bin/env python3
 """
-shrekS_lib.py
+Library of functions used by the IsoLab shrekS_* suite of python scripts.
 
-aschauer@uw.edu - 20231026
-
-Change log:
-    20231026 - created
-    20231129 - updated, removed S_ at start of each header, addded zero, blank, etc after depricating shrekS_standards.py
-
+    version 3.0 - 2023.12.04 - Starting off with version 3 to match the other shrekS scripts. This library did not exist
+        prior to this version.
 """
+
+__authors__ = "Andy Schauer, Ursula Jongebloed"
+__email__ = "aschauer@uw.edu"
+__last_modified__ = "2023-12-04"
+__version__ = "3.0"
+__copyright__ = "Copyright 2023, Andy Schauer"
+__license__ = "Apache 2.0"
+__acknowledgements__ = "Alli Moon, Drew Pronovost"
 
 
 zero = {'names': ['zero'],
