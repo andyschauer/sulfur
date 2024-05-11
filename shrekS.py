@@ -13,12 +13,13 @@ This script opens raw sulfur data files from the mass spectrometer Shrek, organi
         project.
     version 3.0 - 2023.12.04 - GasBench versions start here. Stopped using shrekS_standards in favor of lab wide reference_materials.json.
     version 4.0 - 2024.03.11 - changed to the "get path" model for easier use on multiple computers
+    version 4.1 - 2024.05.11 - changed lab import to isolab_lib
 """
 
 __authors__ = "Andy Schauer, Ursula Jongebloed"
 __email__ = "aschauer@uw.edu"
-__last_modified__ = "2024.03.11"
-__version__ = "4.0"
+__last_modified__ = "2024.05.11"
+__version__ = "4.1"
 __copyright__ = "Copyright 2024, Andy Schauer"
 __license__ = "Apache 2.0"
 __acknowledgements__ = "Alli Moon, Drew Pronovost"
@@ -28,7 +29,7 @@ __acknowledgements__ = "Alli Moon, Drew Pronovost"
 # -------------------- imports --------------------
 import csv
 import json
-import lab
+import isolab_lib
 import os
 import re
 from shrekS_lib import *
@@ -129,7 +130,7 @@ for i in refmat_keys:
 
 
 # -------------------- create list of files to process --------------------
-filelist = lab.make_file_list(os.path.join(project_directory, new_data_directory), 'csv')
+filelist = isolab_lib.make_file_list(os.path.join(project_directory, new_data_directory), 'csv')
 if not filelist:
     print(f'\n    No files in {new_data_directory}.')
 else:
@@ -150,7 +151,7 @@ for file in filelist:
     for i in headers_supp:
         data_supp[i] = []
 
-    headers, data = lab.read_file(os.path.join(project_directory, new_data_directory, file), ',')
+    headers, data = isolab_lib.read_file(os.path.join(project_directory, new_data_directory, file), ',')
 
     # test for file problems
     if 'Analysis' not in headers:
