@@ -12,13 +12,14 @@ This script opens raw sulfur data files from the mass spectrometer Shrek, organi
         and a log file reader / sample calibrator (shrekScalibrate). This eventually migrated to python late in Urusula's project and during Alli's
         project.
     version 3.0 - 2023.12.04 - GasBench versions start here. Stopped using shrekS_standards in favor of lab wide reference_materials.json.
+    version 4.0 - 2024.03.11 - changed to the "get path" model for easier use on multiple computers
 """
 
 __authors__ = "Andy Schauer, Ursula Jongebloed"
 __email__ = "aschauer@uw.edu"
-__last_modified__ = "2023-12-04"
-__version__ = "3.0"
-__copyright__ = "Copyright 2023, Andy Schauer"
+__last_modified__ = "2024.03.11"
+__version__ = "4.0"
+__copyright__ = "Copyright 2024, Andy Schauer"
 __license__ = "Apache 2.0"
 __acknowledgements__ = "Alli Moon, Drew Pronovost"
 
@@ -26,11 +27,11 @@ __acknowledgements__ = "Alli Moon, Drew Pronovost"
 
 # -------------------- imports --------------------
 import csv
+import json
 import lab
 import os
 import re
 from shrekS_lib import *
-from shrekS_standards import *
 import sys
 import time
 
@@ -98,8 +99,8 @@ def get_Sqty(material, mass):
 # -------------------- setup --------------------
 version = os.path.basename(__file__) + ' - ' + time.ctime(os.path.getctime(__file__))
 
-project_directory = '/home/aschauer/projects/shrekS/'
-# project_directory = 'S:/Data/projects/shrekS/'
+python_directory = get_path("python")
+project_directory = get_path("project")
 new_data_directory = 'rawdata_new'
 archive_data_directory = 'rawdata_archive'
 junk_data_directory = 'rawdata_junk'
@@ -108,6 +109,23 @@ log_file_name = 'shrekS_analysis_log.csv'
 if os.path.isdir(project_directory) is False:
     print('directory does not exist...exiting....')
     sys.exit()
+
+
+# -------------------- reference materials ----------------------------
+# load reference material information
+with open(get_path("standards"), 'r') as f:
+    refmat = json.load(f)
+
+refmat_list = []
+refmat_keys = refmat['sulfates'].keys()
+for i in refmat_keys:
+    globals()[i] = refmat['sulfates'][i]
+    refmat_list.append(i)
+
+refmat_keys = refmat['sulfides'].keys()
+for i in refmat_keys:
+    globals()[i] = refmat['sulfides'][i]
+    refmat_list.append(i)
 
 
 # -------------------- create list of files to process --------------------
