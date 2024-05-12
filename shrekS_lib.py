@@ -5,76 +5,17 @@ Library of functions used by the IsoLab shrekS_* suite of python scripts.
     version 3.0 - 2023.12.04 - Starting off with version 3 to match the other shrekS scripts. This library did not exist
         prior to this version.
     version 4.0 - 2024.03.11 - added get_path function
+    version 4.1 - 2024.05.11 - removed get path function in favor of the one in isolab_lib
 """
 
 
 __authors__ = "Andy Schauer, Ursula Jongebloed"
 __email__ = "aschauer@uw.edu"
-__last_modified__ = "2024-03-11"
-__version__ = "4.0"
+__last_modified__ = "2024-05-11"
+__version__ = "4.1"
 __copyright__ = "Copyright 2024, Andy Schauer"
 __license__ = "Apache 2.0"
 __acknowledgements__ = "Alli Moon, Drew Pronovost"
-
-
-
-# -------------------- imports --------------------
-import os
-
-
-
-# -------------------- functions --------------------
-def get_path(desired_path):
-    """Make your life easier with this section. These are the paths that seem to change depending on the computer we are working on."""
-    shrekS_path_file = os.path.join(os.getcwd(), 'shrekS_path.txt')
-    if os.path.isfile(shrekS_path_file):
-        # print(' :-) Using existing shrekS path file for a warm and fuzzy experience. (-:')
-        with open(shrekS_path_file, 'r') as ppf:
-            python_path, project_path, standards_path = ppf.readline().split(',')
-
-    else:
-        python_path_check = False
-        project_path_check = False
-        standards_path_check = False
-        print(' )-: shrekS path file does not exist yet. :-(')
-        print(" Let's make one... :-| ")
-        while python_path_check is False:
-            python_path = input(f'Enter the current path to the shrekS python scripts. Perhaps it is {os.getcwd()}. ')
-            if os.path.isdir(python_path):
-                python_path_check = True
-                if python_path[-1] != '/':
-                    python_path += '/'
-            else:
-                print(f'oops, try typing that in again (you typed {python_path}): ')
-
-        while project_path_check is False:
-            project_path = input('Enter the current path to your projects: ')
-            if os.path.isdir(project_path):
-                project_path_check = True
-                if project_path[-1] != '/':
-                    project_path += '/'
-            else:
-                print(f'oops, try typing that in again (you typed {project_path}): ')
-
-        while standards_path_check is False:
-            standards_path = input('Enter the current path and filename to your reference materials file: ')
-            if os.path.isfile(standards_path):
-                standards_path_check = True
-            else:
-                print(f'oops, try typing that in again (you typed {standards_path}): ')
-
-        with open(shrekS_path_file, 'w') as ppf:
-            ppf.write(f'{python_path},{project_path},{standards_path}')
-
-    if desired_path == "project":
-        return project_path
-    elif desired_path == "python":
-        return python_path
-    elif desired_path == "standards":
-        return standards_path
-    else:
-        unknown_path = input('Enter the path to your project: ')
-        return unknown_path
 
 
 
