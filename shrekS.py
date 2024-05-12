@@ -13,7 +13,7 @@ This script opens raw sulfur data files from the mass spectrometer Shrek, organi
         project.
     version 3.0 - 2023.12.04 - GasBench versions start here. Stopped using shrekS_standards in favor of lab wide reference_materials.json.
     version 4.0 - 2024.03.11 - changed to the "get path" model for easier use on multiple computers
-    version 4.1 - 2024.05.11 - changed lab import to isolab_lib
+    version 4.1 - 2024.05.11 - changed lab import to isolab_lib and updated associated functions from older version of lab to current version of isolab_lib
 """
 
 __authors__ = "Andy Schauer, Ursula Jongebloed"
@@ -100,8 +100,8 @@ def get_Sqty(material, mass):
 # -------------------- setup --------------------
 version = os.path.basename(__file__) + ' - ' + time.ctime(os.path.getctime(__file__))
 
-python_directory = get_path("python")
-project_directory = get_path("project")
+python_directory = isolab_lib.get_path("shrekS", "python")
+project_directory = isolab_lib.get_path("shrekS", "project")
 new_data_directory = 'rawdata_new'
 archive_data_directory = 'rawdata_archive'
 junk_data_directory = 'rawdata_junk'
@@ -114,7 +114,7 @@ if os.path.isdir(project_directory) is False:
 
 # -------------------- reference materials ----------------------------
 # load reference material information
-with open(get_path("standards"), 'r') as f:
+with open(isolab_lib.get_path("shrekS", "standards"), 'r') as f:
     refmat = json.load(f)
 
 refmat_list = []
