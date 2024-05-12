@@ -13,13 +13,14 @@ This script opens the shrekS_analysis_log.csv for sample diagnosis and calibrati
         project. Ursula developed a separate python script while andy continued to limp along with matlab. Andy eventually incorporated much of Urusula's
         script during Alli's project.
     version 3.0 - 2023.12.04 - GasBench versions start here. Stopped using shrekS_standards in favor of lab wide reference_materials.json.
-    version 4.0 - 2024.03.11 - changed to the "get path" model for easier use on multiple computers 
+    version 4.0 - 2024.03.11 - changed to the "get path" model for easier use on multiple computers
+    version 4.1 - 2024.05.11 - changed lab import to isolab_lib, replaced old DIY least squares regression with numpy polyfit
 """
 
 __authors__ = "Andy Schauer, Ursula Jongebloed"
 __email__ = "aschauer@uw.edu"
-__last_modified__ = "2024.03.11"
-__version__ = "4.0"
+__last_modified__ = "2024.05.11"
+__version__ = "4.1"
 __copyright__ = "Copyright 2024, Andy Schauer"
 __license__ = "Apache 2.0"
 __acknowledgements__ = "Alli Moon, Drew Pronovost"
@@ -35,7 +36,7 @@ from bokeh.resources import CDN  # , INLINE
 import csv
 import datetime as dt
 import json
-import lab
+import isolab_lib
 import matplotlib.pyplot as pplt
 from natsort import natsorted
 import numpy as np
@@ -89,12 +90,6 @@ def toggle_flag_to_zero(bad_data_Analysis):
     original_data['pyversions'][bodi] = version
 
 
-def get_outliers(data, sigma):
-    m = np.nanmean(data)
-    s = np.nanstd(data) * sigma
-    o = [i for i, e in enumerate(data) if e > m + s or e < m - s]
-    return m, s, o
-
 
 # -------------------- setup --------------------
 
@@ -111,8 +106,8 @@ else:
 # start_time = time.time()
 version = os.path.basename(__file__) + ' - ' + time.ctime(os.path.getctime(__file__))
 
-python_directory = get_path("python")
-project_directory = get_path("project")
+python_directory = isolab_lib.get_path("shrekS", "python")
+project_directory = isolab_lib.get_path("shrekS", "project")
 new_data_directory = 'rawdata_new'
 archive_data_directory = 'rawdata_archive'
 junk_data_directory = 'rawdata_junk'
@@ -131,7 +126,7 @@ if os.path.isdir(project_directory) is False:
 shutil.copy2(os.path.join(project_directory, log_file_name), os.path.join(project_directory, report_dir, f"data/{log_file_name}_REPORT_COPY"))
 
 # load reference material information
-with open(get_path("standards"), 'r') as f:
+with open(isolab_lib.get_path("shrekS", "standards"), 'r') as f:
     refmat = json.load(f)
 
 refmat_keys = refmat['sulfates'].keys()
@@ -147,7 +142,7 @@ for i in refmat_keys:
 
 # -------------------- get data --------------------
 print('    Importing data...')
-headers, data = lab.read_file(os.path.join(project_directory, log_file_name), ',')
+headers, data = isolab_lib.read_file(os.path.join(project_directory, log_file_name), ',')
 
 
 # -------------------- organize data --------------------
@@ -255,9 +250,7 @@ R66_sam_blank_corrected = (d66_blank_corrected/1000+1)*np.mean(R66_wg)
 
 
 # -------------------- Sqty vs Peak Area least squares fit --------------------
-# Sfit = lab.linreg(Sqty[qtycal['index'] + blank['index']], AreaAll_sam_norm[qtycal['index'] + blank['index']])  # slope, intercept
-# Sfit = lab.linreg(Sqty[qtycal['index']], AreaAll_sam_norm_blank_corr[qtycal['index']])  # slope, intercept
-Sfit = lab.linreg(Sqty[qtycal['index']], AreaAll_sam_norm[qtycal['index']])  # slope, intercept
+Sfit = np.polyfit(Sqty[qtycal['index']], AreaAll_sam_norm[qtycal['index']], 1)
 Sfit_eq_str = f"y = {round(Sfit[0], 1)} * x + {round(Sfit[1], 1)}"
 Sqty_calc = (AreaAll_sam_norm - Sfit[1]) / Sfit[0]
 Sqty_calc[blank['index']] = AreaAll_sam_norm[blank['index']] / Sfit[0]
@@ -284,7 +277,7 @@ Na2SO4['Sqty_upper'] = Sqty[Na2SO4['index']] + Na2SO4['Sqty_error']
 
 # # -------------------- Correct to VCDT --------------------
 
-d34S_vcdt_fit = lab.linreg([np.mean(d34S32S_sam[Ag2S['index']]), np.mean(d34S32S_sam[ZnS['index']])], [Ag2S['d34S'], ZnS['d34S']])
+d34S_vcdt_fit = np.polyfit([np.mean(d34S32S_sam[Ag2S['index']]), np.mean(d34S32S_sam[ZnS['index']])], [Ag2S['d34S'], ZnS['d34S']], 1)
 
 d34S_vcdt = d34S_vcdt_fit[0] * d34S32S_sam + d34S_vcdt_fit[1]
 
