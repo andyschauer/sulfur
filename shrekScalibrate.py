@@ -15,11 +15,13 @@ This script opens the shrekS_analysis_log.csv for sample diagnosis and calibrati
     version 3.0 - 2023.12.04 - GasBench versions start here. Stopped using shrekS_standards in favor of lab wide reference_materials.json.
     version 4.0 - 2024.03.11 - changed to the "get path" model for easier use on multiple computers
     version 4.1 - 2024.05.11 - changed lab import to isolab_lib, replaced old DIY least squares regression with numpy polyfit
+    version 4.2 - 2024.05.12 - now using dateutil.parser because open .csv file in excel and saving changes the date and time format
+
 """
 
 __authors__ = "Andy Schauer, Ursula Jongebloed"
 __email__ = "aschauer@uw.edu"
-__last_modified__ = "2024.05.11"
+__last_modified__ = "2024.05.12"
 __version__ = "4.1"
 __copyright__ = "Copyright 2024, Andy Schauer"
 __license__ = "Apache 2.0"
@@ -35,6 +37,7 @@ from bokeh import palettes
 from bokeh.resources import CDN  # , INLINE
 import csv
 import datetime as dt
+import dateutil.parser
 import json
 import isolab_lib
 import matplotlib.pyplot as pplt
@@ -225,7 +228,7 @@ for i,j in enumerate(Identifier2):
 print('    Maths...')
 # calculate how long each sample takes
 analysis_date_time = [i + ' ' + j for i,j in zip(Date, Time)]
-timediff = [(dt.datetime.strptime(i, '%m/%d/%y %H:%M:%S').timestamp() - dt.datetime.strptime(j, '%m/%d/%y %H:%M:%S').timestamp()) for i, j in zip(analysis_date_time[1:], analysis_date_time[:-1]) if len(i)==17 and len(j)==17]
+timediff = [(dateutil.parser.parse(i).timestamp() - dateutil.parser.parse(j).timestamp()) for i, j in zip(analysis_date_time[1:], analysis_date_time[:-1])]
 timediff = [i for i in timediff if i>2000 and i<6000]
 meantimediff = np.mean(timediff)
 
