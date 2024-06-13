@@ -16,13 +16,13 @@ This script opens the shrekS_analysis_log.csv for sample diagnosis and calibrati
     version 4.0 - 2024.03.11 - changed to the "get path" model for easier use on multiple computers
     version 4.1 - 2024.05.11 - changed lab import to isolab_lib, replaced old DIY least squares regression with numpy polyfit
     version 4.2 - 2024.05.12 - now using dateutil.parser because open .csv file in excel and saving changes the date and time format
-
+    version 4.3 - 2024.06.09 - changed flag to trust, tried to incorporate CN code updates, 
 """
 
 __authors__ = "Andy Schauer, Ursula Jongebloed"
 __email__ = "aschauer@uw.edu"
-__last_modified__ = "2024.05.12"
-__version__ = "4.1"
+__last_modified__ = "2024.06.09"
+__version__ = "4.3"
 __copyright__ = "Copyright 2024, Andy Schauer"
 __license__ = "Apache 2.0"
 __acknowledgements__ = "Alli Moon, Drew Pronovost"
@@ -31,17 +31,16 @@ __acknowledgements__ = "Alli Moon, Drew Pronovost"
 
 # -------------------- imports --------------------
 import argparse
-from bokeh.plotting import figure, show
 from bokeh.embed import file_html
-from bokeh import palettes
-from bokeh.resources import CDN  # , INLINE
+from bokeh.models import NumeralTickFormatter
+from bokeh.plotting import figure, show
+from bokeh.resources import CDN, INLINE
 import csv
 import datetime as dt
 import dateutil.parser
-import json
 import isolab_lib
+import json
 import matplotlib.pyplot as pplt
-from natsort import natsorted
 import numpy as np
 import os
 from shrekS_lib import *
@@ -51,50 +50,15 @@ import time
 import webbrowser
 
 
-# -------------------- functions --------------------
-def rewrite_log_file():
-    """Recreate the analysis log file where the only modification is likely to be setting a flag to 0, making a note, and updating the python script version.
-       I have chosen this way while I am still using csv files to archive data. JSON or other dictionary based storage would make this much easier in here
-       but less immediately transferable to other platforms compared with csv.
 
-       NOTE - The empty column is a hack because I could not get jupyter or python on linux to stop throwing a carriage return within the version string."""
-
-    # Make a copy of the existing log file
-    curr_time = dt.datetime.now()
-    archive_log_file_name = f"{log_file_name[0:-4]}_Archive_{curr_time.strftime('%Y%m%d%H%M%S')}.csv"
-    src = os.path.join(home_dir, project_directory, log_file_name)
-    dst = os.path.join(home_dir, project_directory, 'archive/', archive_log_file_name)
-    shutil.copy2(src, dst)
-    os.remove(os.path.join(home_dir, project_directory, log_file_name))
-
-    # use the existing accepted log file headers (defined in shrekS_standards.py) to construct the export data
-    data_to_write = [f"original_data['{i}'][ii]" for i in log_file_headers]
-    data_to_write = str(data_to_write).replace('"', '')
-
-    # write data to csv log file
-    with open(os.path.join(home_dir, project_directory, log_file_name), 'w', newline='') as csvfile:
-        datawriter = csv.writer(csvfile, quoting=csv.QUOTE_MINIMAL)
-        datawriter.writerow(log_file_headers)
-        for ii in range(len(original_data['Analysis'])):
-            datawriter.writerow(eval(data_to_write))
-
-
-def toggle_flag_to_zero(bad_data_Analysis):
-    """So far this function is used manually. Call it after identifying data that should be excluded from further consideration for reasons
-       specified in the note. After calling this function n times, once per serial number (Analysis), then call rewrite_log_file() and the flag
-       will be changed to zero, the note will be inserted, and the python script version will be updated.
-
-       Pass the bad sample analysis number(s) to this function one at a time, enter the reason when prompted, then run rewrite_log_file().
-    """
-    bodi = original_data['Analysis'].index(str(bad_data_Analysis))
-    note = input('Why are you excluding this sample: ')
-    original_data['flag'][bodi] = 0
-    original_data['notes'][bodi] = note
-    original_data['pyversions'][bodi] = version
+# ---------- FUNCTIONS ---------- 
+def add_calculation_note(note):
+    calculation_notes.append(note)
 
 
 
 # -------------------- setup --------------------
+print('Setup...')
 
 # verbose mode
 parser = argparse.ArgumentParser()
@@ -106,29 +70,62 @@ if args.verbose:
 else:
     verbose = False
 
-# start_time = time.time()
 version = os.path.basename(__file__) + ' - ' + time.ctime(os.path.getctime(__file__))
 
 python_directory = isolab_lib.get_path("shrekS", "python")
-project_directory = isolab_lib.get_path("shrekS", "project")
+method_directory = isolab_lib.get_path("shrekS", "project")
 new_data_directory = 'rawdata_new'
 archive_data_directory = 'rawdata_archive'
 junk_data_directory = 'rawdata_junk'
-log_file_name = 'shrekS_analysis_log.csv'
-report_dir = 'report/'
-fig_dir = 'figures/'
 
-log_file_name = 'shrekS_analysis_log.csv'
-# log_file_name = 'shrekS_analysis_log_fall2023.csv'
+python_scripts = {'shrekS_lib.py': '', 'shrekS.py': '', 'shrekScalibrate.py': ''}
+python_scripts = {key: (time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(os.path.getmtime(f'{python_directory}{key}')))) for key, value in python_scripts.items()}
 
-if os.path.isdir(project_directory) is False:
-    print('\n    The project directory does not exist...exiting....')
+S_log_file_list = isolab_lib.make_file_list(method_directory, '_analysis_log.csv')
+
+print('\nWhat analysis log file to you wish to process?\n')
+
+[print(f'    {i}') for i in S_log_file_list]
+identified_file = 0
+while identified_file == 0:
+    S_log_file_search = input('\nEnter a project analysis log file from above: ')
+    isfile = [S_log_file_search[0: len(S_log_file_search)] in x for x in S_log_file_list]
+    if len(np.where(isfile)[0]) == 1:
+        identified_file = 1
+        log_file_name = S_log_file_list[np.where(isfile)[0][0]]
+        print(f'    Processing S log file {log_file_name}...')
+    else:
+        print('\n** More than one file found. **\n')
+
+if os.path.isdir(method_directory) is False:
+    print('Method directory does not exist...exiting....')
     sys.exit()
 
-# copy log file to report directory
-shutil.copy2(os.path.join(project_directory, log_file_name), os.path.join(project_directory, report_dir, f"data/{log_file_name}_REPORT_COPY"))
+project_root_name = log_file_name[:-17]
+project_directory = os.path.join(method_directory, f'{project_root_name}/')
+if os.path.exists(project_directory)==False:
+    os.mkdir(project_directory)
 
-# load reference material information
+archive_directory = os.path.join(project_directory, 'archive/')
+if os.path.exists(archive_directory)==False:
+    os.mkdir(archive_directory)
+
+report_directory = os.path.join(project_directory, "report/")
+if os.path.exists(report_directory):
+    shutil.move(report_directory, os.path.join(archive_directory, f"report_archive_{int(dt.datetime.utcnow().timestamp())}"))
+os.mkdir(report_directory)
+os.mkdir(os.path.join(report_directory, "data/"))
+os.mkdir(os.path.join(report_directory, "python/"))
+shutil.copy2(os.path.join(python_directory, 'py_report_style.css'), report_directory)
+[shutil.copy2(os.path.join(python_directory, script), os.path.join(report_directory, f"python/{script}_REPORT_COPY")) for script in python_scripts]
+shutil.copy2(os.path.join(method_directory, log_file_name), os.path.join(report_directory, 'data/'))
+report_page = os.path.join(report_directory, f'{project_root_name}_calibration_summary.html')
+
+# copy log file to report directory
+shutil.copy2(os.path.join(method_directory, log_file_name), os.path.join(method_directory, report_directory, f"data/{log_file_name}_REPORT_COPY"))
+
+
+# --------------- load reference material information ------------------------
 with open(isolab_lib.get_path("shrekS", "standards"), 'r') as f:
     refmat = json.load(f)
 
@@ -142,10 +139,15 @@ for i in refmat_keys:
     globals()[i] = refmat['sulfides'][i]
     globals()[i]['index'] = np.empty(0, dtype="int16")
 
+refmat_keys = refmat['organics'].keys()
+for i in refmat_keys:
+    globals()[i] = refmat['organics'][i]
+    globals()[i]['index'] = np.empty(0, dtype="int16")
+
 
 # -------------------- get data --------------------
 print('    Importing data...')
-headers, data = isolab_lib.read_file(os.path.join(project_directory, log_file_name), ',')
+headers, data = isolab_lib.read_file(os.path.join(method_directory, log_file_name), ',')
 
 
 # -------------------- organize data --------------------
@@ -153,12 +155,12 @@ print('    Organizing data...')
 
 data['empty'] = ['' for i in data['Analysis']]  # currently a carriage return is probably written into the "empty" column, which I don't want
 
-# remove flag 0 analyses from data
+# remove trust 0 analyses from data
 original_data = data.copy()
-flag0_indices = [i for i, e in enumerate(data['flag']) if int(e) == 0]
-flag1_indices = [i for i, e in enumerate(data['flag']) if int(e) == 1]
+trust0_indices = [i for i, e in enumerate(data['trust']) if int(e) == 0]
+trust1_indices = [i for i, e in enumerate(data['trust']) if int(e) == 1]
 for header in headers[:-1]:
-    data[header] = [data[header][index] for index in flag1_indices]
+    data[header] = [data[header][index] for index in trust1_indices]
 
 strlist = set(headers) - set(numlist)
 
@@ -170,44 +172,19 @@ for i in strlist:
 
 run_index_first_row = [np.where(file == j)[0][0] for j in sorted(set(file))]
 
-# Identifier1 = np.asarray([i.strip() for i in Identifier1])
-
 
 # -------------------- categorize all Identifier 1 (Identifier1) analyses into appropriate material type --------------------
-all_analyses = [i for i in range(len(Analysis))]
+calculation_notes = []
 
-void['index'] = [i for i, e in enumerate(Identifier1) if str(e).lower() in (name.lower() for name in void['names'])]
-blank['index'] = [i for i, e in enumerate(Identifier1) if str(e).lower() in (name.lower() for name in blank['names'])]
-zero['index'] = [i for i, e in enumerate(Identifier1) if str(e).lower() in (name.lower() for name in zero['names'])]
+knowns_indices = []
+for i in knowns_list:
+    temp_indices = [j for j, e in enumerate(Identifier1) if str(e).lower() in (name.lower() for name in eval(i)['names'])]
+    eval(i)['index'] = temp_indices
+    knowns_indices.extend(eval(i)['index'])
 
-Ag2S['index'] = [i for i, e in enumerate(Identifier1) if str(e).lower() in (name.lower() for name in Ag2S['names'])]
-BaSO4['index'] = [i for i, e in enumerate(Identifier1) if str(e).lower() in (name.lower() for name in BaSO4['names'])]
-Na2SO4['index'] = [i for i, e in enumerate(Identifier1) if str(e).lower() in (name.lower() for name in Na2SO4['names'])]
-ZnS['index'] = [i for i, e in enumerate(Identifier1) if str(e).lower() in (name.lower() for name in ZnS['names'])]
-Ag2SO4['index'] = [i for i, e in enumerate(Identifier1) if str(e).lower() in (name.lower() for name in Ag2SO4['names'])]
+included_isotope_standards = list(set([i for i in Identifier1 if i in refmat_list]))
 
-SodSul_1 = {'index': [i for i, e in enumerate(Identifier1) if e == 'SodSul_1']}
-SodSul_1_RotoVap = {'index': [i for i, e in enumerate(Identifier1) if e == 'SodSul_1_RotoVap']}
-SodSul_1_Oven60 = {'index': [i for i, e in enumerate(Identifier1) if e == 'SodSul_1_Oven60']}
-SodSul_2 = {'index': [i for i, e in enumerate(Identifier1) if e == 'SodSul_2']}
-SodSul_3 = {'index': [i for i, e in enumerate(Identifier1) if e == 'SodSul_3']}
-SodSul_4 = {'index': [i for i, e in enumerate(Identifier1) if e == 'SodSul_4']}
-SodSul_5 = {'index': [i for i, e in enumerate(Identifier1) if e == 'SodSul_5']}
-SodSul_6 = {'index': [i for i, e in enumerate(Identifier1) if e == 'SodSul_6']}
-SodSul_7 = {'index': [i for i, e in enumerate(Identifier1) if e == 'SodSul_7']}
-SodSul_8 = {'index': [i for i, e in enumerate(Identifier1) if e == 'SodSul_8']}
-
-
-# qtycal['index'] = [i for i, e in enumerate(Identifier1) if str(e).lower() in (name.lower() for name in qtycal['names'])]
-# qtycal['index'] = SodSul_1['index']
-# qtycal['index'] = SodSul_1_RotoVap['index']
-qtycal['index'] = SodSul_1_Oven60['index']
-
-all_stds = Ag2S['index'] + BaSO4['index'] + Na2SO4['index'] + ZnS['index'] + qtycal['index']
-
-samples = {'index': list(set(all_analyses) - set(Ag2S['index']) - set(BaSO4['index']) - set(Na2SO4['index']) - set(ZnS['index']) - set(void['index']) - set(blank['index']) - set(qtycal['index']) - set(zero['index']))}
-# samples = {'index': []}
-# samples['index'] = np.intersect1d(samples['index'], sample_index_project)
+sample_indices = list(set(range(0,len(Analysis))) - set(knowns_indices))
 
 recent_run = np.arange(run_index_first_row[-1], len(Analysis))
 
@@ -235,80 +212,111 @@ meantimediff = np.mean(timediff)
 # Normalize peak area to reference peak fluctuations
 AreaAll_wg_norm_ratio = AreaAll_wg / np.nanmean(AreaAll_wg)
 AreaAll_sam_norm = AreaAll_sam / AreaAll_wg_norm_ratio
+add_calculation_note("sample peak area corrected for working gas fluctuations")
+
 
 # blank correction
+blank = void  # in case no blanks are analyzed, treat voids as blanks
+add_calculation_note("no blanks (empty tins) so using voids instead")
 blank['mean_peak_area'] = np.mean(AreaAll_sam_norm[blank['index']])
 blank['mean_d34S'] = np.mean(d34S32S_sam[blank['index']])
-d34S_blank_corr = ((d34S32S_sam * AreaAll_sam_norm) - (blank['mean_d34S'] * blank['mean_peak_area'])) / AreaAll_sam_norm
+
+# (meas_d34S * meas_size) = (sample_d34S * sample_size) + (blank_d34S * blank_size)
+# (meas_d34S * meas_size) - (blank_d34S * blank_size) = (sample_d34S * sample_size) 
+# ((meas_d34S * meas_size) - (blank_d34S * blank_size)) / sample_size = sample_d34S 
+# sample_size = meas_size - blank_size
+
+d34S_blank_corr = ((d34S32S_sam * AreaAll_sam_norm) - (blank['mean_d34S'] * blank['mean_peak_area'])) / (AreaAll_sam_norm - blank['mean_peak_area'])
 AreaAll_sam_norm_blank_corr = AreaAll_sam_norm - blank['mean_peak_area']
-
-
-#np.mean(Area66_sam[blank['index']]/Area64_sam[blank['index']])
-
-R66_wg = Area66_wg / Area64_wg
-R66_sam = Area66_sam / Area64_sam
-d66 = (R66_sam / R66_wg - 1) * 1000
-d66_blank_corrected = ((AreaAll_sam * d66) - (np.mean(AreaAll_sam[blank['index']]) * np.mean(d66[blank['index']]))) / (AreaAll_sam - np.mean(AreaAll_sam[blank['index']]))
-R66_sam_blank_corrected = (d66_blank_corrected/1000+1)*np.mean(R66_wg)
+add_calculation_note("peak area and d34S were blank corrected")
 
 
 # -------------------- Sqty vs Peak Area least squares fit --------------------
-Sfit = np.polyfit(Sqty[qtycal['index']], AreaAll_sam_norm[qtycal['index']], 1)
-Sfit_eq_str = f"y = {round(Sfit[0], 1)} * x + {round(Sfit[1], 1)}"
-Sqty_calc = (AreaAll_sam_norm - Sfit[1]) / Sfit[0]
-Sqty_calc[blank['index']] = AreaAll_sam_norm[blank['index']] / Sfit[0]
-qtycal['area_sort_i'] = np.argsort(AreaAll_sam_norm[qtycal['index']])
-# Sfit_residual = AreaAll_sam_norm[all_stds] - (Sfit[0] * Sqty[all_stds] + Sfit[1])
+qtycal_BaSO4['Sqty'] = Sqty[qtycal_BaSO4['index']]
+qtycal_BaSO4['Sfit'] = np.polyfit(qtycal_BaSO4['Sqty'], AreaAll_sam_norm[qtycal_BaSO4['index']], 1)
+
+
+# trying to find a better way to fit these data but still end up with something reasonable. 
+#    Here, a slope 
+A = qtycal_BaSO4['Sqty'][:,np.newaxis]
+slope, _, _, _ = np.linalg.lstsq(A, AreaAll_sam_norm_blank_corr[qtycal_BaSO4['index']], rcond=None)
+Sqty2_pred = AreaAll_sam_norm / slope
+
+
+
+
+qtycal_BaSO4['Sfit_eq_str'] = f"y = {round(qtycal_BaSO4['Sfit'][0], 1)} * x + {round(qtycal_BaSO4['Sfit'][1], 1)}"
+Sqty_pred = (AreaAll_sam_norm - qtycal_BaSO4['Sfit'][1]) / qtycal_BaSO4['Sfit'][0]
+Sqty_pred[blank['index']] = AreaAll_sam_norm[blank['index']] / qtycal_BaSO4['Sfit'][0]
+qtycal_BaSO4['area_sort_i'] = np.argsort(AreaAll_sam_norm[qtycal_BaSO4['index']])
 
 # blank size analysis
-blank['Sqty_calc'] = AreaAll_sam_norm[blank['index']] / Sfit[0]
-
-non_blanks = np.setdiff1d(all_analyses, np.union1d(blank['index'],void['index']))
-
-blank_void_index = np.sort(np.union1d(blank['index'],void['index']))
-blank_void_diff = np.diff(blank_void_index)
-clean_blanks = np.intersect1d(blank_void_index[np.where(blank_void_diff==1)[0]]+1, blank['index'])  # blanks that either had a blank or a void immediately prior
-dirty_blanks = np.setdiff1d(blank['index'], clean_blanks)
+blank['Sqty_pred'] = AreaAll_sam_norm[blank['index']] / qtycal_BaSO4['Sfit'][0]
 
 
-# microbalance error estimation
-microbalance_error = 0.002  # precision in mg
-Na2SO4['Sqty_error'] = microbalance_error * 1000 * Na2SO4['fractionS']
-Na2SO4['Sqty_lower'] = Sqty[Na2SO4['index']] - Na2SO4['Sqty_error']
-Na2SO4['Sqty_upper'] = Sqty[Na2SO4['index']] + Na2SO4['Sqty_error']
+# ---------- Isotope Calibration Setup ----------
+#     pick extreme isotope standards for maximum calibration range
+d34S_std_1_index = np.argmin([eval(i)['d34S'] for i in included_isotope_standards])
+d34S_std_1 = included_isotope_standards[d34S_std_1_index]
+d34S_std_2_index = np.argmax([eval(i)['d34S'] for i in included_isotope_standards])
+d34S_std_2 = included_isotope_standards[d34S_std_2_index]
+d34S_std_3 = list(set(included_isotope_standards) - set([d34S_std_1, d34S_std_2]))[0]
+
+for i in included_isotope_standards:
+    eval(i)['purpose'] = ''
+
+eval(d34S_std_1)['purpose'] += 'd34S calibration; '
+eval(d34S_std_2)['purpose'] += 'd34S calibration; '
+eval(d34S_std_3)['purpose'] += 'd34S quality control; '
 
 
-# # -------------------- Correct to VCDT --------------------
+# ---------- Residuals ----------
+qtycal_BaSO4['Sresidual'] = AreaAll_sam_norm[qtycal_BaSO4['index']] - (qtycal_BaSO4['Sfit'][0] * qtycal_BaSO4['Sqty'] + qtycal_BaSO4['Sfit'][1])
 
-d34S_vcdt_fit = np.polyfit([np.mean(d34S32S_sam[Ag2S['index']]), np.mean(d34S32S_sam[ZnS['index']])], [Ag2S['d34S'], ZnS['d34S']], 1)
+Nqty_residual = np.concatenate(((Sqty[eval(d34S_std_1)['index']] - Amount[eval(d34S_std_1)['index']] * eval(d34S_std_1)['fractionS']) * 1000,
+                                (Sqty[eval(d34S_std_2)['index']] - Amount[eval(d34S_std_2)['index']] * eval(d34S_std_2)['fractionS']) * 1000,
+                                (Sqty[eval(d34S_std_3)['index']] - Amount[eval(d34S_std_3)['index']] * eval(d34S_std_3)['fractionS']) * 1000))
 
-d34S_vcdt = d34S_vcdt_fit[0] * d34S32S_sam + d34S_vcdt_fit[1]
+eval(d34S_std_1)['d34S_residual'] = d34S_blank_corr[eval(d34S_std_1)['index']] - np.nanmean(d34S_blank_corr[eval(d34S_std_1)['index']])
+eval(d34S_std_2)['d34S_residual'] = d34S_blank_corr[eval(d34S_std_2)['index']] - np.nanmean(d34S_blank_corr[eval(d34S_std_2)['index']])
+eval(d34S_std_3)['d34S_residual'] = d34S_blank_corr[eval(d34S_std_3)['index']] - np.nanmean(d34S_blank_corr[eval(d34S_std_3)['index']])
+d34S_residual_std = np.std(np.concatenate([eval(d34S_std_1)['d34S_residual'], eval(d34S_std_2)['d34S_residual'], eval(d34S_std_3)['d34S_residual']]))
 
 
-# d34S residual
-d34S_residual = np.full(len(d34S32S_sam), np.nan)
-d34S_residual[SodSul_1['index']] = d34S32S_sam[SodSul_1['index']] - np.mean(d34S32S_sam[SodSul_1['index']])
-d34S_residual[SodSul_2['index']] = d34S32S_sam[SodSul_2['index']] - np.mean(d34S32S_sam[SodSul_2['index']])
-d34S_residual[SodSul_3['index']] = d34S32S_sam[SodSul_3['index']] - np.mean(d34S32S_sam[SodSul_3['index']])
-d34S_residual[SodSul_4['index']] = d34S32S_sam[SodSul_4['index']] - np.mean(d34S32S_sam[SodSul_4['index']])
-d34S_residual[SodSul_5['index']] = d34S32S_sam[SodSul_5['index']] - np.mean(d34S32S_sam[SodSul_5['index']])
-d34S_residual[SodSul_6['index']] = d34S32S_sam[SodSul_6['index']] - np.mean(d34S32S_sam[SodSul_6['index']])
-d34S_residual[SodSul_7['index']] = d34S32S_sam[SodSul_7['index']] - np.mean(d34S32S_sam[SodSul_7['index']])
-d34S_residual[SodSul_8['index']] = d34S32S_sam[SodSul_8['index']] - np.mean(d34S32S_sam[SodSul_8['index']])
-d34S_residual[SodSul_1_RotoVap['index']] = d34S32S_sam[SodSul_1_RotoVap['index']] - np.mean(d34S32S_sam[SodSul_1_RotoVap['index']])
-d34S_residual[SodSul_1_Oven60['index']] = d34S32S_sam[SodSul_1_Oven60['index']] - np.mean(d34S32S_sam[SodSul_1_Oven60['index']])
-d34S_residual[BaSO4['index']] = d34S32S_sam[BaSO4['index']] - np.mean(d34S32S_sam[BaSO4['index']])
-d34S_residual[ZnS['index']] = d34S32S_sam[ZnS['index']] - np.mean(d34S32S_sam[ZnS['index']])
-d34S_residual[Ag2S['index']] = d34S32S_sam[Ag2S['index']] - np.mean(d34S32S_sam[Ag2S['index']])
+# ---------- Isotope Drift Calculation ----------
+Sdrift_fit = np.polyfit(np.concatenate([Analysis[eval(d34S_std_1)['index']], Analysis[eval(d34S_std_2)['index']]]),
+                        np.concatenate([eval(d34S_std_1)['d34S_residual'], eval(d34S_std_2)['d34S_residual']]),
+                        1)
+Sdrift_corrfac = Sdrift_fit[0] * Analysis + Sdrift_fit[1]
+d34S_drift_corr = d34S_blank_corr - Sdrift_corrfac
+
+add_calculation_note("d34S was corrected for drift")
+
+
+
+# ---------- Isotope Calibration ----------
+d34S_VCDT_fit = np.polyfit([np.nanmean(d34S_drift_corr[eval(d34S_std_1)['index']]), np.nanmean(d34S_drift_corr[eval(d34S_std_2)['index']])], [eval(d34S_std_1)['d34S'], eval(d34S_std_2)['d34S']], 1)
+d34S_VCDT = d34S_VCDT_fit[0] * d34S_drift_corr + d34S_VCDT_fit[1]
+
+add_calculation_note("d34S was normalized to VCDT, respectively")
+
+
+
+# ---------- Post-normalization residual calculation ----------
+eval(d34S_std_1)['d34S_VCDT_residual'] = d34S_VCDT[eval(d34S_std_1)['index']] - np.nanmean(d34S_VCDT[eval(d34S_std_1)['index']])
+eval(d34S_std_2)['d34S_VCDT_residual'] = d34S_VCDT[eval(d34S_std_2)['index']] - np.nanmean(d34S_VCDT[eval(d34S_std_2)['index']])
+eval(d34S_std_3)['d34S_VCDT_residual'] = d34S_VCDT[eval(d34S_std_3)['index']] - np.nanmean(d34S_VCDT[eval(d34S_std_3)['index']])
+d34S_VCDT_residual_std = np.std(np.concatenate([eval(d34S_std_1)['d34S_VCDT_residual'], eval(d34S_std_2)['d34S_VCDT_residual'], eval(d34S_std_3)['d34S_VCDT_residual']]))
+
 
 # -------------------- figures --------------------
 print('    Making figures...')
 
-marker_sizes = [5, 10, 15, 20, 25]
+marker_sizes = [10, 15, 20, 25, 30]
 blank['marker_size'] = marker_sizes[0]
 blank['marker_color'] = 'black'
-qtycal['marker_size'] = marker_sizes[2]
-qtycal['marker_color'] = 'yellow'
+qtycal_BaSO4['marker_size'] = marker_sizes[3]
+qtycal_BaSO4['marker_color'] = 'yellow'
 BaSO4['marker_size'] = marker_sizes[1]
 BaSO4['marker_color'] = 'white'
 Ag2S['marker_size'] = marker_sizes[1]
@@ -317,10 +325,6 @@ ZnS['marker_size'] = marker_sizes[1]
 ZnS['marker_color'] = 'tan'
 SodSul_1['marker_size'] = marker_sizes[2]
 SodSul_1['marker_color'] = 'hotpink'
-SodSul_1_RotoVap['marker_size'] = marker_sizes[2]
-SodSul_1_RotoVap['marker_color'] = 'pink'
-SodSul_1_Oven60['marker_size'] = marker_sizes[2]
-SodSul_1_Oven60['marker_color'] = 'deeppink'
 SodSul_2['marker_size'] = marker_sizes[3]
 SodSul_2['marker_color'] = 'lavender'
 SodSul_3['marker_size'] = marker_sizes[3]
@@ -338,85 +342,79 @@ SodSul_8['marker_color'] = 'mediumslateblue'
 
 
 figures = {}
+font_size = "24pt"
 fig_n = 1
 
-figures[fig_n] = {}
-figures[fig_n]['cap'] = f"""Figure {fig_n}. Normalized peak area versus analysis number. Peak Area is normalized by the working gas to account for fluctuations
-                        in the mass spec sensitivity."""
-figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="Analysis", y_axis_label="Normalized Peak Area (Vs)",
-                           tools="pan, box_zoom, reset, save", active_drag="box_zoom")
-figures[fig_n]['fig'].circle(Analysis[blank['index']], AreaAll_sam_norm[blank['index']],
-                         legend_label="Blank", size=blank['marker_size'], line_color='black', fill_color=blank['marker_color'])
-figures[fig_n]['fig'].square(Analysis[SodSul_1['index']], AreaAll_sam_norm[SodSul_1['index']],
-                         legend_label="SodSul_1 Microbalance", size=SodSul_1['marker_size'], line_color='black', fill_color=SodSul_1['marker_color'])
-figures[fig_n]['fig'].triangle(Analysis[BaSO4['index']], AreaAll_sam_norm[BaSO4['index']],
-                           legend_label="BaSO4", size=marker_sizes[1], line_color='black', fill_color=BaSO4['marker_color'])
-figures[fig_n]['fig'].triangle(Analysis[Ag2S['index']], AreaAll_sam_norm[Ag2S['index']],
-                           legend_label="Ag2S", size=marker_sizes[1], line_color='black', fill_color=Ag2S['marker_color'])
-figures[fig_n]['fig'].triangle(Analysis[ZnS['index']], AreaAll_sam_norm[ZnS['index']],
-                           legend_label="ZnS", size=marker_sizes[1], line_color='black', fill_color=ZnS['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_1_RotoVap['index']], AreaAll_sam_norm[SodSul_1_RotoVap['index']],
-                          legend_label="SodSul_1_RotoVap", size=SodSul_1_RotoVap['marker_size'], line_color='black', fill_color=SodSul_1_RotoVap['marker_color'])
-figures[fig_n]['fig'].square_pin(Analysis[SodSul_1_Oven60['index']], AreaAll_sam_norm[SodSul_1_Oven60['index']],
-                          legend_label="SodSul_1_Oven60", size=SodSul_1_Oven60['marker_size'], line_color='black', fill_color=SodSul_1_Oven60['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_2['index']], AreaAll_sam_norm[SodSul_2['index']],
-                          legend_label="SodSul_2", size=SodSul_2['marker_size'], line_color='black', fill_color=SodSul_2['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_3['index']], AreaAll_sam_norm[SodSul_3['index']],
-                          legend_label="SodSul_3", size=SodSul_3['marker_size'], line_color='black', fill_color=SodSul_3['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_4['index']], AreaAll_sam_norm[SodSul_4['index']],
-                          legend_label="SodSul_4", size=SodSul_4['marker_size'], line_color='black', fill_color=SodSul_4['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_5['index']], AreaAll_sam_norm[SodSul_5['index']],
-                          legend_label="SodSul_5", size=SodSul_5['marker_size'], line_color='black', fill_color=SodSul_5['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_6['index']], AreaAll_sam_norm[SodSul_6['index']],
-                          legend_label="SodSul_6", size=SodSul_6['marker_size'], line_color='black', fill_color=SodSul_6['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_7['index']], AreaAll_sam_norm[SodSul_7['index']],
-                          legend_label="SodSul_7", size=SodSul_7['marker_size'], line_color='black', fill_color=SodSul_7['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_8['index']], AreaAll_sam_norm[SodSul_8['index']],
-                          legend_label="SodSul_8", size=SodSul_8['marker_size'], line_color='black', fill_color=SodSul_8['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[samples['index']], AreaAll_sam_norm[samples['index']],
-                          legend_label="samples", size=12, line_color='black', fill_color='red')
-[figures[fig_n]['fig'].line([Analysis[i], Analysis[i]], [np.nanmin(AreaAll_sam_norm), np.nanmax(AreaAll_sam_norm)]) for i in run_index_first_row]
+if verbose:
+
+    figures[fig_n] = {}
+    figures[fig_n]['cap'] = f"""Figure {fig_n}. Working gas peak area versus analysis number. If you see fluctuations, this is the reason to normalize sample peak area. Sample peak area is normalized by this working gas peak area to account for fluctuations in the mass spec sensitivity."""
+    figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="Analysis", y_axis_label="Working Gas Peak Area (Vs)", tools="pan, box_zoom, reset, save", active_drag="box_zoom")
+    figures[fig_n]['fig'].square(Analysis, AreaAll_wg, size=marker_sizes[0], line_color='black', fill_color='black')
+    figures[fig_n]['fig'].xaxis.formatter = NumeralTickFormatter(format="0")
+    figures[fig_n]['fig'].xaxis.axis_label_text_font_size = font_size
+    figures[fig_n]['fig'].yaxis.axis_label_text_font_size = font_size
+    figures[fig_n]['fig'].xaxis.major_label_text_font_size = font_size
+    figures[fig_n]['fig'].yaxis.major_label_text_font_size = font_size
+    figures[fig_n]['fig'].title.text_font_size = font_size
+
+    fig_n += 1
+
+    figures[fig_n] = {}
+    figures[fig_n]['cap'] = f"""Figure {fig_n}. Normalized peak area versus analysis number. Peak Area is normalized by the working gas to account for fluctuations in the mass spec sensitivity."""
+    figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="Analysis", y_axis_label="Normalized Peak Area (Vs)", tools="pan, box_zoom, reset, save", active_drag="box_zoom")
+    figures[fig_n]['fig'].circle(Analysis[blank['index']], AreaAll_sam_norm[blank['index']], legend_label="Blank", size=blank['marker_size'], line_color='black', fill_color=blank['marker_color'])
+    figures[fig_n]['fig'].triangle(Analysis[BaSO4['index']], AreaAll_sam_norm[BaSO4['index']], legend_label="BaSO4", size=BaSO4['marker_size'], line_color='black', fill_color=BaSO4['marker_color'])
+    figures[fig_n]['fig'].triangle(Analysis[Ag2S['index']], AreaAll_sam_norm[Ag2S['index']], legend_label="Ag2S", size=Ag2S['marker_size'], line_color='black', fill_color=Ag2S['marker_color'])
+    figures[fig_n]['fig'].triangle(Analysis[ZnS['index']], AreaAll_sam_norm[ZnS['index']], legend_label="ZnS", size=ZnS['marker_size'], line_color='black', fill_color=ZnS['marker_color'])
+    # figures[fig_n]['fig'].square(Analysis[SodSul_1['index']], AreaAll_sam_norm[SodSul_1['index']], legend_label="SodSul_1", size=SodSul_1['marker_size'], line_color='black', fill_color=SodSul_1['marker_color'])
+    # figures[fig_n]['fig'].diamond(Analysis[SodSul_2['index']], AreaAll_sam_norm[SodSul_2['index']], legend_label="SodSul_2", size=SodSul_2['marker_size'], line_color='black', fill_color=SodSul_2['marker_color'])
+    # figures[fig_n]['fig'].diamond(Analysis[SodSul_3['index']], AreaAll_sam_norm[SodSul_3['index']], legend_label="SodSul_3", size=SodSul_3['marker_size'], line_color='black', fill_color=SodSul_3['marker_color'])
+    # figures[fig_n]['fig'].diamond(Analysis[SodSul_4['index']], AreaAll_sam_norm[SodSul_4['index']], legend_label="SodSul_4", size=SodSul_4['marker_size'], line_color='black', fill_color=SodSul_4['marker_color'])
+    # figures[fig_n]['fig'].diamond(Analysis[SodSul_5['index']], AreaAll_sam_norm[SodSul_5['index']], legend_label="SodSul_5", size=SodSul_5['marker_size'], line_color='black', fill_color=SodSul_5['marker_color'])
+    # figures[fig_n]['fig'].diamond(Analysis[SodSul_6['index']], AreaAll_sam_norm[SodSul_6['index']], legend_label="SodSul_6", size=SodSul_6['marker_size'], line_color='black', fill_color=SodSul_6['marker_color'])
+    # figures[fig_n]['fig'].diamond(Analysis[SodSul_7['index']], AreaAll_sam_norm[SodSul_7['index']], legend_label="SodSul_7", size=SodSul_7['marker_size'], line_color='black', fill_color=SodSul_7['marker_color'])
+    # figures[fig_n]['fig'].diamond(Analysis[SodSul_8['index']], AreaAll_sam_norm[SodSul_8['index']], legend_label="SodSul_8", size=SodSul_8['marker_size'], line_color='black', fill_color=SodSul_8['marker_color'])
+    figures[fig_n]['fig'].diamond(Analysis[sample_indices], AreaAll_sam_norm[sample_indices], legend_label="samples", size=12, line_color='black', fill_color='red')
+    [figures[fig_n]['fig'].line([Analysis[i], Analysis[i]], [np.nanmin(AreaAll_sam_norm), np.nanmax(AreaAll_sam_norm)]) for i in run_index_first_row]
+    figures[fig_n]['fig'].xaxis.formatter = NumeralTickFormatter(format="0")
+    figures[fig_n]['fig'].xaxis.axis_label_text_font_size = font_size
+    figures[fig_n]['fig'].yaxis.axis_label_text_font_size = font_size
+    figures[fig_n]['fig'].xaxis.major_label_text_font_size = font_size
+    figures[fig_n]['fig'].yaxis.major_label_text_font_size = font_size
+    figures[fig_n]['fig'].title.text_font_size = font_size
+    figures[fig_n]['fig'].legend.label_text_font_size = font_size
 
 
 fig_n += 1
 
 
 figures[fig_n] = {}
-figures[fig_n]['cap'] = f"""Figure {fig_n}. Normalized peak area versus target sulfur quantity. Peak Area is normalized by the working gas to account for fluctuations
-                        in the mass spec sensitivity. The line of best fit is {Sfit_eq_str}."""
+figures[fig_n]['cap'] = f"""Figure {fig_n}. Normalized peak area versus target sulfur quantity. Peak Area is normalized by the working gas to account for fluctuations in the mass spec sensitivity. The line of best fit is {qtycal_BaSO4['Sfit_eq_str']}."""
 figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="Target sulfur quantity (ug)", y_axis_label="Normalized Peak Area (Vs)", tools="pan, box_zoom, reset, save", active_drag="box_zoom")
-
-figures[fig_n]['fig'].circle(Sqty[blank['index']], AreaAll_sam_norm[blank['index']],
-                         legend_label="Blank", size=blank['marker_size'], line_color='black', fill_color=blank['marker_color'])
-figures[fig_n]['fig'].square(Sqty[SodSul_1['index']], AreaAll_sam_norm[SodSul_1['index']],
-                         legend_label="SodSul_1 Microbalance", size=SodSul_1['marker_size'], line_color='black', fill_color=SodSul_1['marker_color'])
-figures[fig_n]['fig'].triangle(Sqty[BaSO4['index']], AreaAll_sam_norm[BaSO4['index']],
-                           legend_label="BaSO4", size=marker_sizes[1], line_color='black', fill_color=BaSO4['marker_color'])
-figures[fig_n]['fig'].triangle(Sqty[Ag2S['index']], AreaAll_sam_norm[Ag2S['index']],
-                           legend_label="Ag2S", size=marker_sizes[1], line_color='black', fill_color=Ag2S['marker_color'])
-figures[fig_n]['fig'].triangle(Sqty[ZnS['index']], AreaAll_sam_norm[ZnS['index']],
-                           legend_label="ZnS", size=marker_sizes[1], line_color='black', fill_color=ZnS['marker_color'])
-figures[fig_n]['fig'].diamond(Sqty[SodSul_1_RotoVap['index']], AreaAll_sam_norm[SodSul_1_RotoVap['index']],
-                          legend_label="SodSul_1_RotoVap", size=SodSul_1_RotoVap['marker_size'], line_color='black', fill_color=SodSul_1_RotoVap['marker_color'])
-figures[fig_n]['fig'].square_pin(Sqty[SodSul_1_Oven60['index']], AreaAll_sam_norm[SodSul_1_Oven60['index']],
-                          legend_label="SodSul_1_Oven60", size=SodSul_1_Oven60['marker_size'], line_color='black', fill_color=SodSul_1_Oven60['marker_color'])
-figures[fig_n]['fig'].diamond(Sqty[SodSul_2['index']], AreaAll_sam_norm[SodSul_2['index']],
-                          legend_label="SodSul_2", size=SodSul_2['marker_size'], line_color='black', fill_color=SodSul_2['marker_color'])
-figures[fig_n]['fig'].diamond(Sqty[SodSul_3['index']], AreaAll_sam_norm[SodSul_3['index']],
-                          legend_label="SodSul_3", size=SodSul_3['marker_size'], line_color='black', fill_color=SodSul_3['marker_color'])
-figures[fig_n]['fig'].diamond(Sqty[SodSul_4['index']], AreaAll_sam_norm[SodSul_4['index']],
-                          legend_label="SodSul_4", size=SodSul_4['marker_size'], line_color='black', fill_color=SodSul_4['marker_color'])
-figures[fig_n]['fig'].diamond(Sqty[SodSul_5['index']], AreaAll_sam_norm[SodSul_5['index']],
-                          legend_label="SodSul_5", size=SodSul_5['marker_size'], line_color='black', fill_color=SodSul_5['marker_color'])
-figures[fig_n]['fig'].diamond(Sqty[SodSul_6['index']], AreaAll_sam_norm[SodSul_6['index']],
-                          legend_label="SodSul_6", size=SodSul_6['marker_size'], line_color='black', fill_color=SodSul_6['marker_color'])
-figures[fig_n]['fig'].diamond(Sqty[SodSul_7['index']], AreaAll_sam_norm[SodSul_7['index']],
-                          legend_label="SodSul_7", size=SodSul_7['marker_size'], line_color='black', fill_color=SodSul_7['marker_color'])
-figures[fig_n]['fig'].diamond(Sqty[SodSul_8['index']], AreaAll_sam_norm[SodSul_8['index']],
-                          legend_label="SodSul_8", size=SodSul_8['marker_size'], line_color='black', fill_color=SodSul_8['marker_color'])
-figures[fig_n]['fig'].diamond(Sqty[samples['index']], AreaAll_sam_norm[samples['index']],
-                          legend_label="samples", size=12, line_color='black', fill_color='red')
-figures[fig_n]['fig'].line(Sqty_calc[qtycal['index']][qtycal['area_sort_i']], AreaAll_sam_norm[qtycal['index']][qtycal['area_sort_i']])
+figures[fig_n]['fig'].circle(Sqty[blank['index']], AreaAll_sam_norm[blank['index']], legend_label="Blank", size=blank['marker_size'], line_color='black', fill_color=blank['marker_color'])
+figures[fig_n]['fig'].circle(Sqty[qtycal_BaSO4['index']], AreaAll_sam_norm[qtycal_BaSO4['index']], legend_label="qtycal", size=qtycal_BaSO4['marker_size'], line_color='black', fill_color=qtycal_BaSO4['marker_color'])
+figures[fig_n]['fig'].triangle(Sqty[BaSO4['index']], AreaAll_sam_norm[BaSO4['index']], legend_label="BaSO4", size=BaSO4['marker_size'], line_color='black', fill_color=BaSO4['marker_color'])
+figures[fig_n]['fig'].triangle(Sqty[Ag2S['index']], AreaAll_sam_norm[Ag2S['index']], legend_label="Ag2S", size=Ag2S['marker_size'], line_color='black', fill_color=Ag2S['marker_color'])
+figures[fig_n]['fig'].triangle(Sqty[ZnS['index']], AreaAll_sam_norm[ZnS['index']], legend_label="ZnS", size=ZnS['marker_size'], line_color='black', fill_color=ZnS['marker_color'])
+# figures[fig_n]['fig'].square(Sqty[SodSul_1['index']], AreaAll_sam_norm[SodSul_1['index']], legend_label="SodSul_1", size=SodSul_1['marker_size'], line_color='black', fill_color=SodSul_1['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty[SodSul_2['index']], AreaAll_sam_norm[SodSul_2['index']], legend_label="SodSul_2", size=SodSul_2['marker_size'], line_color='black', fill_color=SodSul_2['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty[SodSul_3['index']], AreaAll_sam_norm[SodSul_3['index']], legend_label="SodSul_3", size=SodSul_3['marker_size'], line_color='black', fill_color=SodSul_3['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty[SodSul_4['index']], AreaAll_sam_norm[SodSul_4['index']], legend_label="SodSul_4", size=SodSul_4['marker_size'], line_color='black', fill_color=SodSul_4['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty[SodSul_5['index']], AreaAll_sam_norm[SodSul_5['index']], legend_label="SodSul_5", size=SodSul_5['marker_size'], line_color='black', fill_color=SodSul_5['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty[SodSul_6['index']], AreaAll_sam_norm[SodSul_6['index']], legend_label="SodSul_6", size=SodSul_6['marker_size'], line_color='black', fill_color=SodSul_6['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty[SodSul_7['index']], AreaAll_sam_norm[SodSul_7['index']], legend_label="SodSul_7", size=SodSul_7['marker_size'], line_color='black', fill_color=SodSul_7['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty[SodSul_8['index']], AreaAll_sam_norm[SodSul_8['index']], legend_label="SodSul_8", size=SodSul_8['marker_size'], line_color='black', fill_color=SodSul_8['marker_color'])
+figures[fig_n]['fig'].diamond(Sqty[sample_indices], AreaAll_sam_norm[sample_indices], legend_label="samples", size=12, line_color='black', fill_color='red')
+figures[fig_n]['fig'].line(Sqty_pred[qtycal_BaSO4['index']][qtycal_BaSO4['area_sort_i']], AreaAll_sam_norm[qtycal_BaSO4['index']][qtycal_BaSO4['area_sort_i']])
+figures[fig_n]['fig'].line(Sqty2_pred[qtycal_BaSO4['index']][qtycal_BaSO4['area_sort_i']], AreaAll_sam_norm[qtycal_BaSO4['index']][qtycal_BaSO4['area_sort_i']])
+figures[fig_n]['fig'].xaxis.formatter = NumeralTickFormatter(format="0")
+figures[fig_n]['fig'].xaxis.axis_label_text_font_size = font_size
+figures[fig_n]['fig'].yaxis.axis_label_text_font_size = font_size
+figures[fig_n]['fig'].xaxis.major_label_text_font_size = font_size
+figures[fig_n]['fig'].yaxis.major_label_text_font_size = font_size
+figures[fig_n]['fig'].title.text_font_size = font_size
+figures[fig_n]['fig'].legend.label_text_font_size = font_size
 
 
 fig_n += 1
@@ -424,39 +422,28 @@ fig_n += 1
 
 figures[fig_n] = {}
 figures[fig_n]['cap'] = f"""Figure {fig_n}. Calculated sulfur quantity versus analysis number."""
-figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="Analysis", y_axis_label="Sulfur quantity (ug)",
-                           tools="pan, box_zoom, reset, save", active_drag="box_zoom")
-figures[fig_n]['fig'].circle(Analysis[blank['index']], Sqty_calc[blank['index']],
-                         legend_label="Blank", size=blank['marker_size'], line_color='black', fill_color=blank['marker_color'])
-figures[fig_n]['fig'].square(Analysis[SodSul_1['index']], Sqty_calc[SodSul_1['index']],
-                         legend_label="SodSul_1 Microbalance", size=SodSul_1['marker_size'], line_color='black', fill_color=SodSul_1['marker_color'])
-figures[fig_n]['fig'].triangle(Analysis[BaSO4['index']], Sqty_calc[BaSO4['index']],
-                           legend_label="BaSO4", size=marker_sizes[1], line_color='black', fill_color=BaSO4['marker_color'])
-figures[fig_n]['fig'].triangle(Analysis[Ag2S['index']], Sqty_calc[Ag2S['index']],
-                           legend_label="Ag2S", size=marker_sizes[1], line_color='black', fill_color=Ag2S['marker_color'])
-figures[fig_n]['fig'].triangle(Analysis[ZnS['index']], Sqty_calc[ZnS['index']],
-                           legend_label="ZnS", size=marker_sizes[1], line_color='black', fill_color=ZnS['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_1_RotoVap['index']], Sqty_calc[SodSul_1_RotoVap['index']],
-                          legend_label="SodSul_1_RotoVap", size=SodSul_1_RotoVap['marker_size'], line_color='black', fill_color=SodSul_1_RotoVap['marker_color'])
-figures[fig_n]['fig'].square_pin(Analysis[SodSul_1_Oven60['index']], Sqty_calc[SodSul_1_Oven60['index']],
-                          legend_label="SodSul_1_Oven60", size=SodSul_1_Oven60['marker_size'], line_color='black', fill_color=SodSul_1_Oven60['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_2['index']], Sqty_calc[SodSul_2['index']],
-                          legend_label="SodSul_2", size=SodSul_2['marker_size'], line_color='black', fill_color=SodSul_2['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_3['index']], Sqty_calc[SodSul_3['index']],
-                          legend_label="SodSul_3", size=SodSul_3['marker_size'], line_color='black', fill_color=SodSul_3['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_4['index']], Sqty_calc[SodSul_4['index']],
-                          legend_label="SodSul_4", size=SodSul_4['marker_size'], line_color='black', fill_color=SodSul_4['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_5['index']], Sqty_calc[SodSul_5['index']],
-                          legend_label="SodSul_5", size=SodSul_5['marker_size'], line_color='black', fill_color=SodSul_5['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_6['index']], Sqty_calc[SodSul_6['index']],
-                          legend_label="SodSul_6", size=SodSul_6['marker_size'], line_color='black', fill_color=SodSul_6['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_7['index']], Sqty_calc[SodSul_7['index']],
-                          legend_label="SodSul_7", size=SodSul_7['marker_size'], line_color='black', fill_color=SodSul_7['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_8['index']], Sqty_calc[SodSul_8['index']],
-                          legend_label="SodSul_8", size=SodSul_8['marker_size'], line_color='black', fill_color=SodSul_8['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[samples['index']], Sqty_calc[samples['index']],
-                          legend_label="samples", size=12, line_color='black', fill_color='red')
-[figures[fig_n]['fig'].line([Analysis[i], Analysis[i]], [np.nanmin(Sqty_calc), np.nanmax(Sqty_calc)]) for i in run_index_first_row]
+figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="Analysis", y_axis_label="Sulfur quantity (ug)", tools="pan, box_zoom, reset, save", active_drag="box_zoom")
+figures[fig_n]['fig'].circle(Analysis[blank['index']], Sqty_pred[blank['index']], legend_label="Blank", size=blank['marker_size'], line_color='black', fill_color=blank['marker_color'])
+figures[fig_n]['fig'].triangle(Analysis[BaSO4['index']], Sqty_pred[BaSO4['index']], legend_label="BaSO4", size=BaSO4['marker_size'], line_color='black', fill_color=BaSO4['marker_color'])
+figures[fig_n]['fig'].triangle(Analysis[Ag2S['index']], Sqty_pred[Ag2S['index']], legend_label="Ag2S", size=Ag2S['marker_size'], line_color='black', fill_color=Ag2S['marker_color'])
+figures[fig_n]['fig'].triangle(Analysis[ZnS['index']], Sqty_pred[ZnS['index']], legend_label="ZnS", size=ZnS['marker_size'], line_color='black', fill_color=ZnS['marker_color'])
+# figures[fig_n]['fig'].square(Analysis[SodSul_1['index']], Sqty_pred[SodSul_1['index']], legend_label="SodSul_1", size=SodSul_1['marker_size'], line_color='black', fill_color=SodSul_1['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_2['index']], Sqty_pred[SodSul_2['index']], legend_label="SodSul_2", size=SodSul_2['marker_size'], line_color='black', fill_color=SodSul_2['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_3['index']], Sqty_pred[SodSul_3['index']], legend_label="SodSul_3", size=SodSul_3['marker_size'], line_color='black', fill_color=SodSul_3['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_4['index']], Sqty_pred[SodSul_4['index']], legend_label="SodSul_4", size=SodSul_4['marker_size'], line_color='black', fill_color=SodSul_4['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_5['index']], Sqty_pred[SodSul_5['index']], legend_label="SodSul_5", size=SodSul_5['marker_size'], line_color='black', fill_color=SodSul_5['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_6['index']], Sqty_pred[SodSul_6['index']], legend_label="SodSul_6", size=SodSul_6['marker_size'], line_color='black', fill_color=SodSul_6['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_7['index']], Sqty_pred[SodSul_7['index']], legend_label="SodSul_7", size=SodSul_7['marker_size'], line_color='black', fill_color=SodSul_7['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_8['index']], Sqty_pred[SodSul_8['index']], legend_label="SodSul_8", size=SodSul_8['marker_size'], line_color='black', fill_color=SodSul_8['marker_color'])
+figures[fig_n]['fig'].diamond(Analysis[sample_indices], Sqty_pred[sample_indices], legend_label="samples", size=12, line_color='black', fill_color='red')
+[figures[fig_n]['fig'].line([Analysis[i], Analysis[i]], [np.nanmin(Sqty_pred), np.nanmax(Sqty_pred)]) for i in run_index_first_row]
+figures[fig_n]['fig'].xaxis.formatter = NumeralTickFormatter(format="0")
+figures[fig_n]['fig'].xaxis.axis_label_text_font_size = font_size
+figures[fig_n]['fig'].yaxis.axis_label_text_font_size = font_size
+figures[fig_n]['fig'].xaxis.major_label_text_font_size = font_size
+figures[fig_n]['fig'].yaxis.major_label_text_font_size = font_size
+figures[fig_n]['fig'].title.text_font_size = font_size
+figures[fig_n]['fig'].legend.label_text_font_size = font_size
 
 
 fig_n += 1
@@ -464,35 +451,26 @@ fig_n += 1
 
 figures[fig_n] = {}
 figures[fig_n]['cap'] = f"""Figure {fig_n}. Yield."""
-figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="Analysis", y_axis_label="Yield (Vs / ug)",
-                           tools="pan, box_zoom, reset, save", active_drag="box_zoom")
-figures[fig_n]['fig'].square(Analysis[SodSul_1['index']], AreaAll_sam_norm[SodSul_1['index']]/Sqty[SodSul_1['index']],
-                         legend_label="SodSul_1 Microbalance", size=SodSul_1['marker_size'], line_color='black', fill_color=SodSul_1['marker_color'])
-figures[fig_n]['fig'].triangle(Analysis[BaSO4['index']], AreaAll_sam_norm[BaSO4['index']]/Sqty[BaSO4['index']],
-                           legend_label="BaSO4", size=marker_sizes[1], line_color='black', fill_color=BaSO4['marker_color'])
-figures[fig_n]['fig'].triangle(Analysis[Ag2S['index']], AreaAll_sam_norm[Ag2S['index']]/Sqty[Ag2S['index']],
-                           legend_label="Ag2S", size=marker_sizes[1], line_color='black', fill_color=Ag2S['marker_color'])
-figures[fig_n]['fig'].triangle(Analysis[ZnS['index']], AreaAll_sam_norm[ZnS['index']]/Sqty[ZnS['index']],
-                           legend_label="ZnS", size=marker_sizes[1], line_color='black', fill_color=ZnS['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_1_RotoVap['index']], AreaAll_sam_norm[SodSul_1_RotoVap['index']]/Sqty[SodSul_1_RotoVap['index']],
-                          legend_label="SodSul_1_RotoVap", size=SodSul_1_RotoVap['marker_size'], line_color='black', fill_color=SodSul_1_RotoVap['marker_color'])
-figures[fig_n]['fig'].square_pin(Analysis[SodSul_1_Oven60['index']], AreaAll_sam_norm[SodSul_1_Oven60['index']]/Sqty[SodSul_1_Oven60['index']],
-                          legend_label="SodSul_1_Oven60", size=SodSul_1_Oven60['marker_size'], line_color='black', fill_color=SodSul_1_Oven60['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_2['index']], AreaAll_sam_norm[SodSul_2['index']]/Sqty[SodSul_2['index']],
-                          legend_label="SodSul_2", size=SodSul_2['marker_size'], line_color='black', fill_color=SodSul_2['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_3['index']], AreaAll_sam_norm[SodSul_3['index']]/Sqty[SodSul_3['index']],
-                          legend_label="SodSul_3", size=SodSul_3['marker_size'], line_color='black', fill_color=SodSul_3['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_4['index']], AreaAll_sam_norm[SodSul_4['index']]/Sqty[SodSul_4['index']],
-                          legend_label="SodSul_4", size=SodSul_4['marker_size'], line_color='black', fill_color=SodSul_4['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_5['index']], AreaAll_sam_norm[SodSul_5['index']]/Sqty[SodSul_5['index']],
-                          legend_label="SodSul_5", size=SodSul_5['marker_size'], line_color='black', fill_color=SodSul_5['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_6['index']], AreaAll_sam_norm[SodSul_6['index']]/Sqty[SodSul_6['index']],
-                          legend_label="SodSul_6", size=SodSul_6['marker_size'], line_color='black', fill_color=SodSul_6['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_7['index']], AreaAll_sam_norm[SodSul_7['index']]/Sqty[SodSul_7['index']],
-                          legend_label="SodSul_7", size=SodSul_7['marker_size'], line_color='black', fill_color=SodSul_7['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_8['index']], AreaAll_sam_norm[SodSul_8['index']]/Sqty[SodSul_8['index']],
-                          legend_label="SodSul_8", size=SodSul_8['marker_size'], line_color='black', fill_color=SodSul_8['marker_color'])
+figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="Analysis", y_axis_label="Yield (Vs / ug)", tools="pan, box_zoom, reset, save", active_drag="box_zoom")
+figures[fig_n]['fig'].triangle(Analysis[BaSO4['index']], AreaAll_sam_norm[BaSO4['index']]/Sqty[BaSO4['index']], legend_label="BaSO4", size=BaSO4['marker_size'], line_color='black', fill_color=BaSO4['marker_color'])
+figures[fig_n]['fig'].triangle(Analysis[Ag2S['index']], AreaAll_sam_norm[Ag2S['index']]/Sqty[Ag2S['index']], legend_label="Ag2S", size=Ag2S['marker_size'], line_color='black', fill_color=Ag2S['marker_color'])
+figures[fig_n]['fig'].triangle(Analysis[ZnS['index']], AreaAll_sam_norm[ZnS['index']]/Sqty[ZnS['index']], legend_label="ZnS", size=ZnS['marker_size'], line_color='black', fill_color=ZnS['marker_color'])
+# figures[fig_n]['fig'].square(Analysis[SodSul_1['index']], AreaAll_sam_norm[SodSul_1['index']]/Sqty[SodSul_1['index']], legend_label="SodSul_1", size=SodSul_1['marker_size'], line_color='black', fill_color=SodSul_1['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_2['index']], AreaAll_sam_norm[SodSul_2['index']]/Sqty[SodSul_2['index']], legend_label="SodSul_2", size=SodSul_2['marker_size'], line_color='black', fill_color=SodSul_2['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_3['index']], AreaAll_sam_norm[SodSul_3['index']]/Sqty[SodSul_3['index']], legend_label="SodSul_3", size=SodSul_3['marker_size'], line_color='black', fill_color=SodSul_3['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_4['index']], AreaAll_sam_norm[SodSul_4['index']]/Sqty[SodSul_4['index']], legend_label="SodSul_4", size=SodSul_4['marker_size'], line_color='black', fill_color=SodSul_4['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_5['index']], AreaAll_sam_norm[SodSul_5['index']]/Sqty[SodSul_5['index']], legend_label="SodSul_5", size=SodSul_5['marker_size'], line_color='black', fill_color=SodSul_5['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_6['index']], AreaAll_sam_norm[SodSul_6['index']]/Sqty[SodSul_6['index']], legend_label="SodSul_6", size=SodSul_6['marker_size'], line_color='black', fill_color=SodSul_6['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_7['index']], AreaAll_sam_norm[SodSul_7['index']]/Sqty[SodSul_7['index']], legend_label="SodSul_7", size=SodSul_7['marker_size'], line_color='black', fill_color=SodSul_7['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_8['index']], AreaAll_sam_norm[SodSul_8['index']]/Sqty[SodSul_8['index']], legend_label="SodSul_8", size=SodSul_8['marker_size'], line_color='black', fill_color=SodSul_8['marker_color'])
 [figures[fig_n]['fig'].line([Analysis[i], Analysis[i]], [0, 200]) for i in run_index_first_row]
+figures[fig_n]['fig'].xaxis.formatter = NumeralTickFormatter(format="0")
+figures[fig_n]['fig'].xaxis.axis_label_text_font_size = font_size
+figures[fig_n]['fig'].yaxis.axis_label_text_font_size = font_size
+figures[fig_n]['fig'].xaxis.major_label_text_font_size = font_size
+figures[fig_n]['fig'].yaxis.major_label_text_font_size = font_size
+figures[fig_n]['fig'].title.text_font_size = font_size
+figures[fig_n]['fig'].legend.label_text_font_size = font_size
 
 
 fig_n += 1
@@ -500,39 +478,28 @@ fig_n += 1
 
 figures[fig_n] = {}
 figures[fig_n]['cap'] = f"""Figure {fig_n}. Measured d34S vs working gas."""
-figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="Analysis", y_axis_label="d34S measured (permil)",
-                           tools="pan, box_zoom, reset, save", active_drag="box_zoom")
-figures[fig_n]['fig'].circle(Analysis[blank['index']], d34S32S_sam[blank['index']],
-                         legend_label="Blank", size=blank['marker_size'], line_color='black', fill_color=blank['marker_color'])
-figures[fig_n]['fig'].square(Analysis[SodSul_1['index']], d34S32S_sam[SodSul_1['index']],
-                         legend_label="SodSul_1 Microbalance", size=SodSul_1['marker_size'], line_color='black', fill_color=SodSul_1['marker_color'])
-figures[fig_n]['fig'].triangle(Analysis[BaSO4['index']], d34S32S_sam[BaSO4['index']],
-                           legend_label="BaSO4", size=marker_sizes[1], line_color='black', fill_color=BaSO4['marker_color'])
-figures[fig_n]['fig'].triangle(Analysis[Ag2S['index']], d34S32S_sam[Ag2S['index']],
-                           legend_label="Ag2S", size=marker_sizes[1], line_color='black', fill_color=Ag2S['marker_color'])
-figures[fig_n]['fig'].triangle(Analysis[ZnS['index']], d34S32S_sam[ZnS['index']],
-                           legend_label="ZnS", size=marker_sizes[1], line_color='black', fill_color=ZnS['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_1_RotoVap['index']], d34S32S_sam[SodSul_1_RotoVap['index']],
-                          legend_label="SodSul_1_RotoVap", size=SodSul_1_RotoVap['marker_size'], line_color='black', fill_color=SodSul_1_RotoVap['marker_color'])
-figures[fig_n]['fig'].square_pin(Analysis[SodSul_1_Oven60['index']], d34S32S_sam[SodSul_1_Oven60['index']],
-                          legend_label="SodSul_1_Oven60", size=SodSul_1_Oven60['marker_size'], line_color='black', fill_color=SodSul_1_Oven60['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_2['index']], d34S32S_sam[SodSul_2['index']],
-                          legend_label="SodSul_2", size=SodSul_2['marker_size'], line_color='black', fill_color=SodSul_2['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_3['index']], d34S32S_sam[SodSul_3['index']],
-                          legend_label="SodSul_3", size=SodSul_3['marker_size'], line_color='black', fill_color=SodSul_3['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_4['index']], d34S32S_sam[SodSul_4['index']],
-                          legend_label="SodSul_4", size=SodSul_4['marker_size'], line_color='black', fill_color=SodSul_4['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_5['index']], d34S32S_sam[SodSul_5['index']],
-                          legend_label="SodSul_5", size=SodSul_5['marker_size'], line_color='black', fill_color=SodSul_5['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_6['index']], d34S32S_sam[SodSul_6['index']],
-                          legend_label="SodSul_6", size=SodSul_6['marker_size'], line_color='black', fill_color=SodSul_6['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_7['index']], d34S32S_sam[SodSul_7['index']],
-                          legend_label="SodSul_7", size=SodSul_7['marker_size'], line_color='black', fill_color=SodSul_7['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[SodSul_8['index']], d34S32S_sam[SodSul_8['index']],
-                          legend_label="SodSul_8", size=SodSul_8['marker_size'], line_color='black', fill_color=SodSul_8['marker_color'])
-figures[fig_n]['fig'].diamond(Analysis[samples['index']], d34S32S_sam[samples['index']],
-                          legend_label="samples", size=12, line_color='black', fill_color='red')
+figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="Analysis", y_axis_label="d34S measured (permil)", tools="pan, box_zoom, reset, save", active_drag="box_zoom")
+figures[fig_n]['fig'].circle(Analysis[blank['index']], d34S32S_sam[blank['index']], legend_label="Blank", size=blank['marker_size'], line_color='black', fill_color=blank['marker_color'])
+figures[fig_n]['fig'].triangle(Analysis[BaSO4['index']], d34S32S_sam[BaSO4['index']], legend_label="BaSO4", size=BaSO4['marker_size'], line_color='black', fill_color=BaSO4['marker_color'])
+figures[fig_n]['fig'].triangle(Analysis[Ag2S['index']], d34S32S_sam[Ag2S['index']], legend_label="Ag2S", size=Ag2S['marker_size'], line_color='black', fill_color=Ag2S['marker_color'])
+figures[fig_n]['fig'].triangle(Analysis[ZnS['index']], d34S32S_sam[ZnS['index']], legend_label="ZnS", size=ZnS['marker_size'], line_color='black', fill_color=ZnS['marker_color'])
+# figures[fig_n]['fig'].square(Analysis[SodSul_1['index']], d34S32S_sam[SodSul_1['index']], legend_label="SodSul_1", size=SodSul_1['marker_size'], line_color='black', fill_color=SodSul_1['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_2['index']], d34S32S_sam[SodSul_2['index']], legend_label="SodSul_2", size=SodSul_2['marker_size'], line_color='black', fill_color=SodSul_2['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_3['index']], d34S32S_sam[SodSul_3['index']], legend_label="SodSul_3", size=SodSul_3['marker_size'], line_color='black', fill_color=SodSul_3['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_4['index']], d34S32S_sam[SodSul_4['index']], legend_label="SodSul_4", size=SodSul_4['marker_size'], line_color='black', fill_color=SodSul_4['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_5['index']], d34S32S_sam[SodSul_5['index']], legend_label="SodSul_5", size=SodSul_5['marker_size'], line_color='black', fill_color=SodSul_5['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_6['index']], d34S32S_sam[SodSul_6['index']], legend_label="SodSul_6", size=SodSul_6['marker_size'], line_color='black', fill_color=SodSul_6['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_7['index']], d34S32S_sam[SodSul_7['index']], legend_label="SodSul_7", size=SodSul_7['marker_size'], line_color='black', fill_color=SodSul_7['marker_color'])
+# figures[fig_n]['fig'].diamond(Analysis[SodSul_8['index']], d34S32S_sam[SodSul_8['index']], legend_label="SodSul_8", size=SodSul_8['marker_size'], line_color='black', fill_color=SodSul_8['marker_color'])
+figures[fig_n]['fig'].diamond(Analysis[sample_indices], d34S32S_sam[sample_indices], legend_label="samples", size=12, line_color='black', fill_color='red')
 [figures[fig_n]['fig'].line([Analysis[i], Analysis[i]], [np.nanmin(d34S32S_sam), np.nanmax(d34S32S_sam)]) for i in run_index_first_row]
+figures[fig_n]['fig'].xaxis.formatter = NumeralTickFormatter(format="0")
+figures[fig_n]['fig'].xaxis.axis_label_text_font_size = font_size
+figures[fig_n]['fig'].yaxis.axis_label_text_font_size = font_size
+figures[fig_n]['fig'].xaxis.major_label_text_font_size = font_size
+figures[fig_n]['fig'].yaxis.major_label_text_font_size = font_size
+figures[fig_n]['fig'].title.text_font_size = font_size
+figures[fig_n]['fig'].legend.label_text_font_size = font_size
 
 
 
@@ -542,34 +509,25 @@ fig_n += 1
 
 figures[fig_n] = {}
 figures[fig_n]['cap'] = f"""Figure {fig_n}. d34S residual vs calculated Sulfur quantity."""
-figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="Sqty_calc", y_axis_label="residual d34S (permil)",
-                           tools="pan, box_zoom, reset, save", active_drag="box_zoom")
-figures[fig_n]['fig'].square(Sqty_calc[SodSul_1['index']], d34S32S_sam[SodSul_1['index']] - np.nanmean(d34S32S_sam[SodSul_1['index']]),
-                         legend_label="SodSul_1 Microbalance", size=SodSul_1['marker_size'], line_color='black', fill_color=SodSul_1['marker_color'])
-figures[fig_n]['fig'].triangle(Sqty_calc[BaSO4['index']], d34S32S_sam[BaSO4['index']] - np.nanmean(d34S32S_sam[BaSO4['index']]),
-                           legend_label="BaSO4", size=marker_sizes[1], line_color='black', fill_color=BaSO4['marker_color'])
-figures[fig_n]['fig'].triangle(Sqty_calc[Ag2S['index']], d34S32S_sam[Ag2S['index']] - np.nanmean(d34S32S_sam[Ag2S['index']]),
-                           legend_label="Ag2S", size=marker_sizes[1], line_color='black', fill_color=Ag2S['marker_color'])
-figures[fig_n]['fig'].triangle(Sqty_calc[ZnS['index']], d34S32S_sam[ZnS['index']] - np.nanmean(d34S32S_sam[ZnS['index']]),
-                           legend_label="ZnS", size=marker_sizes[1], line_color='black', fill_color=ZnS['marker_color'])
-figures[fig_n]['fig'].diamond(Sqty_calc[SodSul_1_RotoVap['index']], d34S32S_sam[SodSul_1_RotoVap['index']] - np.nanmean(d34S32S_sam[SodSul_1_RotoVap['index']]),
-                          legend_label="SodSul_1_RotoVap", size=SodSul_1_RotoVap['marker_size'], line_color='black', fill_color=SodSul_1_RotoVap['marker_color'])
-figures[fig_n]['fig'].square_pin(Sqty_calc[SodSul_1_Oven60['index']], d34S32S_sam[SodSul_1_Oven60['index']] - np.nanmean(d34S32S_sam[SodSul_1_Oven60['index']]),
-                          legend_label="SodSul_1_Oven60", size=SodSul_1_Oven60['marker_size'], line_color='black', fill_color=SodSul_1_Oven60['marker_color'])
-figures[fig_n]['fig'].diamond(Sqty_calc[SodSul_2['index']], d34S32S_sam[SodSul_2['index']] - np.nanmean(d34S32S_sam[SodSul_2['index']]),
-                          legend_label="SodSul_2", size=SodSul_2['marker_size'], line_color='black', fill_color=SodSul_2['marker_color'])
-figures[fig_n]['fig'].diamond(Sqty_calc[SodSul_3['index']], d34S32S_sam[SodSul_3['index']] - np.nanmean(d34S32S_sam[SodSul_3['index']]),
-                          legend_label="SodSul_3", size=SodSul_3['marker_size'], line_color='black', fill_color=SodSul_3['marker_color'])
-figures[fig_n]['fig'].diamond(Sqty_calc[SodSul_4['index']], d34S32S_sam[SodSul_4['index']] - np.nanmean(d34S32S_sam[SodSul_4['index']]),
-                          legend_label="SodSul_4", size=SodSul_4['marker_size'], line_color='black', fill_color=SodSul_4['marker_color'])
-figures[fig_n]['fig'].diamond(Sqty_calc[SodSul_5['index']], d34S32S_sam[SodSul_5['index']] - np.nanmean(d34S32S_sam[SodSul_5['index']]),
-                          legend_label="SodSul_5", size=SodSul_5['marker_size'], line_color='black', fill_color=SodSul_5['marker_color'])
-figures[fig_n]['fig'].diamond(Sqty_calc[SodSul_6['index']], d34S32S_sam[SodSul_6['index']] - np.nanmean(d34S32S_sam[SodSul_6['index']]),
-                          legend_label="SodSul_6", size=SodSul_6['marker_size'], line_color='black', fill_color=SodSul_6['marker_color'])
-figures[fig_n]['fig'].diamond(Sqty_calc[SodSul_7['index']], d34S32S_sam[SodSul_7['index']] - np.nanmean(d34S32S_sam[SodSul_7['index']]),
-                          legend_label="SodSul_7", size=SodSul_7['marker_size'], line_color='black', fill_color=SodSul_7['marker_color'])
-figures[fig_n]['fig'].diamond(Sqty_calc[SodSul_8['index']], d34S32S_sam[SodSul_8['index']] - np.nanmean(d34S32S_sam[SodSul_8['index']]),
-                          legend_label="SodSul_8", size=SodSul_8['marker_size'], line_color='black', fill_color=SodSul_8['marker_color'])
+figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="Sqty_pred", y_axis_label="residual d34S (permil)", tools="pan, box_zoom, reset, save", active_drag="box_zoom")
+figures[fig_n]['fig'].triangle(Sqty_pred[BaSO4['index']], d34S32S_sam[BaSO4['index']] - np.nanmean(d34S32S_sam[BaSO4['index']]), legend_label="BaSO4", size=BaSO4['marker_size'], line_color='black', fill_color=BaSO4['marker_color'])
+figures[fig_n]['fig'].triangle(Sqty_pred[Ag2S['index']], d34S32S_sam[Ag2S['index']] - np.nanmean(d34S32S_sam[Ag2S['index']]), legend_label="Ag2S", size=Ag2S['marker_size'], line_color='black', fill_color=Ag2S['marker_color'])
+figures[fig_n]['fig'].triangle(Sqty_pred[ZnS['index']], d34S32S_sam[ZnS['index']] - np.nanmean(d34S32S_sam[ZnS['index']]), legend_label="ZnS", size=ZnS['marker_size'], line_color='black', fill_color=ZnS['marker_color'])
+# figures[fig_n]['fig'].square(Sqty_pred[SodSul_1['index']], d34S32S_sam[SodSul_1['index']] - np.nanmean(d34S32S_sam[SodSul_1['index']]), legend_label="SodSul_1", size=SodSul_1['marker_size'], line_color='black', fill_color=SodSul_1['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty_pred[SodSul_2['index']], d34S32S_sam[SodSul_2['index']] - np.nanmean(d34S32S_sam[SodSul_2['index']]), legend_label="SodSul_2", size=SodSul_2['marker_size'], line_color='black', fill_color=SodSul_2['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty_pred[SodSul_3['index']], d34S32S_sam[SodSul_3['index']] - np.nanmean(d34S32S_sam[SodSul_3['index']]), legend_label="SodSul_3", size=SodSul_3['marker_size'], line_color='black', fill_color=SodSul_3['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty_pred[SodSul_4['index']], d34S32S_sam[SodSul_4['index']] - np.nanmean(d34S32S_sam[SodSul_4['index']]), legend_label="SodSul_4", size=SodSul_4['marker_size'], line_color='black', fill_color=SodSul_4['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty_pred[SodSul_5['index']], d34S32S_sam[SodSul_5['index']] - np.nanmean(d34S32S_sam[SodSul_5['index']]), legend_label="SodSul_5", size=SodSul_5['marker_size'], line_color='black', fill_color=SodSul_5['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty_pred[SodSul_6['index']], d34S32S_sam[SodSul_6['index']] - np.nanmean(d34S32S_sam[SodSul_6['index']]), legend_label="SodSul_6", size=SodSul_6['marker_size'], line_color='black', fill_color=SodSul_6['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty_pred[SodSul_7['index']], d34S32S_sam[SodSul_7['index']] - np.nanmean(d34S32S_sam[SodSul_7['index']]), legend_label="SodSul_7", size=SodSul_7['marker_size'], line_color='black', fill_color=SodSul_7['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty_pred[SodSul_8['index']], d34S32S_sam[SodSul_8['index']] - np.nanmean(d34S32S_sam[SodSul_8['index']]), legend_label="SodSul_8", size=SodSul_8['marker_size'], line_color='black', fill_color=SodSul_8['marker_color'])
+figures[fig_n]['fig'].xaxis.formatter = NumeralTickFormatter(format="0")
+figures[fig_n]['fig'].xaxis.axis_label_text_font_size = font_size
+figures[fig_n]['fig'].yaxis.axis_label_text_font_size = font_size
+figures[fig_n]['fig'].xaxis.major_label_text_font_size = font_size
+figures[fig_n]['fig'].yaxis.major_label_text_font_size = font_size
+figures[fig_n]['fig'].title.text_font_size = font_size
+figures[fig_n]['fig'].legend.label_text_font_size = font_size
 
 
 fig_n += 1
@@ -577,83 +535,58 @@ fig_n += 1
 
 figures[fig_n] = {}
 figures[fig_n]['cap'] = f"""Figure {fig_n}. d34S vcdt vs d34S measured."""
-figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="d34S measured", y_axis_label="d34S VCDT (permil)",
-                           tools="pan, box_zoom, reset, save", active_drag="box_zoom")
-figures[fig_n]['fig'].square(d34S32S_sam[SodSul_1['index']], d34S_vcdt[SodSul_1['index']],
-                         legend_label="SodSul_1 Microbalance", size=SodSul_1['marker_size'], line_color='black', fill_color=SodSul_1['marker_color'])
-figures[fig_n]['fig'].triangle(d34S32S_sam[BaSO4['index']], d34S_vcdt[BaSO4['index']],
-                           legend_label="BaSO4", size=marker_sizes[1], line_color='black', fill_color=BaSO4['marker_color'])
-figures[fig_n]['fig'].triangle(d34S32S_sam[Ag2S['index']], d34S_vcdt[Ag2S['index']],
-                           legend_label="Ag2S", size=marker_sizes[1], line_color='black', fill_color=Ag2S['marker_color'])
-figures[fig_n]['fig'].triangle(d34S32S_sam[ZnS['index']], d34S_vcdt[ZnS['index']],
-                           legend_label="ZnS", size=marker_sizes[1], line_color='black', fill_color=ZnS['marker_color'])
-figures[fig_n]['fig'].diamond(d34S32S_sam[SodSul_1_RotoVap['index']], d34S_vcdt[SodSul_1_RotoVap['index']],
-                          legend_label="SodSul_1_RotoVap", size=SodSul_1_RotoVap['marker_size'], line_color='black', fill_color=SodSul_1_RotoVap['marker_color'])
-figures[fig_n]['fig'].square_pin(d34S32S_sam[SodSul_1_Oven60['index']], d34S_vcdt[SodSul_1_Oven60['index']],
-                          legend_label="SodSul_1_Oven60", size=SodSul_1_Oven60['marker_size'], line_color='black', fill_color=SodSul_1_Oven60['marker_color'])
-figures[fig_n]['fig'].diamond(d34S32S_sam[SodSul_2['index']], d34S_vcdt[SodSul_2['index']],
-                          legend_label="SodSul_2", size=SodSul_2['marker_size'], line_color='black', fill_color=SodSul_2['marker_color'])
-figures[fig_n]['fig'].diamond(d34S32S_sam[SodSul_3['index']], d34S_vcdt[SodSul_3['index']],
-                          legend_label="SodSul_3", size=SodSul_3['marker_size'], line_color='black', fill_color=SodSul_3['marker_color'])
-figures[fig_n]['fig'].diamond(d34S32S_sam[SodSul_4['index']], d34S_vcdt[SodSul_4['index']],
-                          legend_label="SodSul_4", size=SodSul_4['marker_size'], line_color='black', fill_color=SodSul_4['marker_color'])
-figures[fig_n]['fig'].diamond(d34S32S_sam[SodSul_5['index']], d34S_vcdt[SodSul_5['index']],
-                          legend_label="SodSul_5", size=SodSul_5['marker_size'], line_color='black', fill_color=SodSul_5['marker_color'])
-figures[fig_n]['fig'].diamond(d34S32S_sam[SodSul_6['index']], d34S_vcdt[SodSul_6['index']],
-                          legend_label="SodSul_6", size=SodSul_6['marker_size'], line_color='black', fill_color=SodSul_6['marker_color'])
-figures[fig_n]['fig'].diamond(d34S32S_sam[SodSul_7['index']], d34S_vcdt[SodSul_7['index']],
-                          legend_label="SodSul_7", size=SodSul_7['marker_size'], line_color='black', fill_color=SodSul_7['marker_color'])
-figures[fig_n]['fig'].diamond(d34S32S_sam[SodSul_8['index']], d34S_vcdt[SodSul_8['index']],
-                          legend_label="SodSul_8", size=SodSul_8['marker_size'], line_color='black', fill_color=SodSul_8['marker_color'])
-figures[fig_n]['fig'].diamond(d34S32S_sam[samples['index']], d34S_vcdt[samples['index']],
-                          legend_label="samples", size=12, line_color='black', fill_color='red')
+figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="d34S measured", y_axis_label="d34S VCDT (permil)", tools="pan, box_zoom, reset, save", active_drag="box_zoom")
+figures[fig_n]['fig'].triangle(d34S32S_sam[BaSO4['index']], d34S_VCDT[BaSO4['index']], legend_label="BaSO4", size=BaSO4['marker_size'], line_color='black', fill_color=BaSO4['marker_color'])
+figures[fig_n]['fig'].triangle(d34S32S_sam[Ag2S['index']], d34S_VCDT[Ag2S['index']], legend_label="Ag2S", size=Ag2S['marker_size'], line_color='black', fill_color=Ag2S['marker_color'])
+figures[fig_n]['fig'].triangle(d34S32S_sam[ZnS['index']], d34S_VCDT[ZnS['index']], legend_label="ZnS", size=ZnS['marker_size'], line_color='black', fill_color=ZnS['marker_color'])
+# figures[fig_n]['fig'].square(d34S32S_sam[SodSul_1['index']], d34S_VCDT[SodSul_1['index']], legend_label="SodSul_1", size=SodSul_1['marker_size'], line_color='black', fill_color=SodSul_1['marker_color'])
+# figures[fig_n]['fig'].diamond(d34S32S_sam[SodSul_2['index']], d34S_VCDT[SodSul_2['index']], legend_label="SodSul_2", size=SodSul_2['marker_size'], line_color='black', fill_color=SodSul_2['marker_color'])
+# figures[fig_n]['fig'].diamond(d34S32S_sam[SodSul_3['index']], d34S_VCDT[SodSul_3['index']], legend_label="SodSul_3", size=SodSul_3['marker_size'], line_color='black', fill_color=SodSul_3['marker_color'])
+# figures[fig_n]['fig'].diamond(d34S32S_sam[SodSul_4['index']], d34S_VCDT[SodSul_4['index']], legend_label="SodSul_4", size=SodSul_4['marker_size'], line_color='black', fill_color=SodSul_4['marker_color'])
+# figures[fig_n]['fig'].diamond(d34S32S_sam[SodSul_5['index']], d34S_VCDT[SodSul_5['index']], legend_label="SodSul_5", size=SodSul_5['marker_size'], line_color='black', fill_color=SodSul_5['marker_color'])
+# figures[fig_n]['fig'].diamond(d34S32S_sam[SodSul_6['index']], d34S_VCDT[SodSul_6['index']], legend_label="SodSul_6", size=SodSul_6['marker_size'], line_color='black', fill_color=SodSul_6['marker_color'])
+# figures[fig_n]['fig'].diamond(d34S32S_sam[SodSul_7['index']], d34S_VCDT[SodSul_7['index']], legend_label="SodSul_7", size=SodSul_7['marker_size'], line_color='black', fill_color=SodSul_7['marker_color'])
+# figures[fig_n]['fig'].diamond(d34S32S_sam[SodSul_8['index']], d34S_VCDT[SodSul_8['index']], legend_label="SodSul_8", size=SodSul_8['marker_size'], line_color='black', fill_color=SodSul_8['marker_color'])
+figures[fig_n]['fig'].diamond(d34S32S_sam[sample_indices], d34S_VCDT[sample_indices], legend_label="samples", size=12, line_color='black', fill_color='red')
+figures[fig_n]['fig'].xaxis.formatter = NumeralTickFormatter(format="0")
 figures[fig_n]['fig'].legend.location = 'left'
+figures[fig_n]['fig'].xaxis.axis_label_text_font_size = font_size
+figures[fig_n]['fig'].yaxis.axis_label_text_font_size = font_size
+figures[fig_n]['fig'].xaxis.major_label_text_font_size = font_size
+figures[fig_n]['fig'].yaxis.major_label_text_font_size = font_size
+figures[fig_n]['fig'].title.text_font_size = font_size
+figures[fig_n]['fig'].legend.label_text_font_size = font_size
 
 
 fig_n += 1
 
 
-figures[fig_n] = {}
-figures[fig_n]['cap'] = f"""Figure {fig_n}. blank corrected d66."""
-figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="Area All (Vs)", y_axis_label="d66 blank corrected (permil)",
-                           tools="pan, box_zoom, reset, save", active_drag="box_zoom")
-figures[fig_n]['fig'].circle(AreaAll_sam[blank['index']], d66[blank['index']],
-                         legend_label="Blank", size=blank['marker_size'], line_color='black', fill_color=blank['marker_color'])
-figures[fig_n]['fig'].square(AreaAll_sam[SodSul_1['index']], d66_blank_corrected[SodSul_1['index']],
-                         legend_label="SodSul_1 Microbalance", size=SodSul_1['marker_size'], line_color='black', fill_color=SodSul_1['marker_color'])
-figures[fig_n]['fig'].triangle(AreaAll_sam[BaSO4['index']], d66_blank_corrected[BaSO4['index']],
-                           legend_label="BaSO4", size=marker_sizes[1], line_color='black', fill_color=BaSO4['marker_color'])
-figures[fig_n]['fig'].triangle(AreaAll_sam[Ag2S['index']], d66_blank_corrected[Ag2S['index']],
-                           legend_label="Ag2S", size=marker_sizes[1], line_color='black', fill_color=Ag2S['marker_color'])
-figures[fig_n]['fig'].triangle(AreaAll_sam[ZnS['index']], d66_blank_corrected[ZnS['index']],
-                           legend_label="ZnS", size=marker_sizes[1], line_color='black', fill_color=ZnS['marker_color'])
-figures[fig_n]['fig'].legend.location = 'left'
 
 
 
 
 # -------------------- export summary data file --------------------
 print(f'\n    Creating summary data file.')
-summary_data_filename = f'shrekS_summary_data_MiraRoth.csv'
-summary_data_file = os.path.join(project_directory, report_dir, 'data/', summary_data_filename)
-summary_file_headers = ['Sample ID', 'Date', 'Analysis Number', 'Mass (mg)', 'Peak Area (Vs)', 'Sulfur amount (ug)', 'd34S vs working gas (permil)']
-data_to_write = '[Identifier1[ii], Date[ii], int(Analysis[ii]), Amount[ii], AreaAll_sam_norm[ii], Sqty[ii], round(d34S32S_sam[ii], 2)]'
+summary_data_filename = f'shrekS_summary_data.csv'
+summary_data_file = os.path.join(method_directory, report_directory, 'data/', summary_data_filename)
+summary_file_headers = ['Sample ID', 'Date', 'Analysis Number', 'Mass (mg)', 'Peak Area (Vs)', 'Sulfur amount (ug)', 'd34S vs VCDT (permil)']
+data_to_write = '[Identifier1[ii], Date[ii], int(Analysis[ii]), Amount[ii], AreaAll_sam_norm[ii], Sqty[ii], round(d34S_VCDT[ii], 2)]'
 data_to_write = str(data_to_write).replace("'", "")
 with open(summary_data_file, 'w', newline='') as csvfile:
     datawriter = csv.writer(csvfile, quoting=csv.QUOTE_MINIMAL)
     datawriter.writerow(summary_file_headers)
-    for ii in all_stds:
+    for ii in knowns_indices:
         datawriter.writerow(eval(data_to_write))
     datawriter.writerow('\n')
-    for ii in samples['index']:
+    for ii in sample_indices:
         datawriter.writerow(eval(data_to_write))
 
 
 # -------------------- make html summary report --------------------
 
 # copy report files
-shutil.copy2(os.path.join(python_directory, 'py_report_style.css'), os.path.join(project_directory, report_dir))
-[shutil.copy2(os.path.join(python_directory, script), os.path.join(project_directory, report_dir, f"python/{script}_REPORT_COPY")) for script in python_scripts]
+shutil.copy2(os.path.join(python_directory, 'py_report_style.css'), os.path.join(method_directory, report_directory))
+[shutil.copy2(os.path.join(python_directory, script), os.path.join(method_directory, report_directory, f"python/{script}_REPORT_COPY")) for script in python_scripts]
 
 
 header = f"""
@@ -666,7 +599,7 @@ header = f"""
         <link rel="stylesheet" type="text/css" href="py_report_style.css">
         <title>Shrek S Report</title>
     </head>
-    <body id="top">\n
+    <body class="entire_page">\n
 
     <div class="created-date">Created - {str(dt.datetime.now())}</div>
 
@@ -701,10 +634,10 @@ header = f"""
             <tr><th>Category</th><th>n</th></tr>
             <tr><td>Total number of runs</td><td>{len(run_index_first_row)}</td></tr>
             <tr><td>Total number of analyses</td><td>{len(Analysis)}</td></tr>
-            <tr><td>Total number of standards analyzed <sup>*</sup></td><td>{len(all_stds)}</td></tr>
-            <tr><td>Total number of samples analyzed</td><td>{len(samples['index'])}</td></tr>
+            <tr><td>Total number of standards analyzed <sup>*</sup></td><td>{len(knowns_indices)}</td></tr>
+            <tr><td>Total number of samples analyzed</td><td>{len(sample_indices)}</td></tr>
             <tr><td><br></td></tr>
-            <tr><td>Number of <a href="#excluded">excluded analyses</a></td><td>{len(flag0_indices)}</td></tr>
+            <tr><td>Number of <a href="#excluded">excluded analyses</a></td><td>{len(trust0_indices)}</td></tr>
         </table>
         <sup>*</sup><small> - Reference material analyses are accumulated from many individual runs and projects into a single reference
                               frame until the instrumentation shifts and a new reference frame must be considered.</small>
@@ -717,13 +650,13 @@ header = f"""
 figure_block = [f"""<div class="clear-both">{file_html(figures[i]['fig'], CDN)}{figures[i]['cap']}<hr></div>""" for i in figures.keys()]
 
 
-excluded_analyses_block = str([f"<tr><td>{original_data['Analysis'][i]}</td><td>{original_data['Identifier1'][i]}</td><td>{original_data['notes'][i]}</td></tr>" for i in flag0_indices]).replace("[","").replace("'","").replace("]","").replace(", ","")
+excluded_analyses_block = str([f"<tr><td>{original_data['Analysis'][i]}</td><td>{original_data['Identifier1'][i]}</td><td>{original_data['notes'][i]}</td></tr>" for i in trust0_indices]).replace("[","").replace("'","").replace("]","").replace(", ","")
 
 excluded_analysis = f"""</div>
     \n<h2 id="excluded">Excluded analyses</h2>
     <div class="text-indent"><p>This is a list of analyses that have been excluded from further data processing showing
     the sample ID, the analysis number, and the reason for exclusion. If you want to included select analyses back into
-    data processing, open the log file, find the sample of interest, and change flag to 1, then rerun the script.</p>
+    data processing, open the log file, find the sample of interest, and change trust to 1, then rerun the script.</p>
 
     <table>
         <tr><th>Sample ID</th><th>Analysis Number</th><th>Reason for excluding</th></tr>
@@ -749,7 +682,7 @@ footer = f"""
     </body></html>"""
 
 
-log_summary_page = os.path.join(project_directory, report_dir, 'report.html')
+log_summary_page = os.path.join(method_directory, report_directory, 'report.html')
 with open(log_summary_page, 'w') as html_page:
 
     html_page.write(header)
@@ -765,7 +698,7 @@ webbrowser.open(log_summary_page)
 
 
 # create zip file of entire report directory
-shutil.make_archive('report', 'zip', os.path.join(project_directory, report_dir))
-if os.path.exists(os.path.join(project_directory, report_dir, 'report.zip')):
-    os.remove(os.path.join(project_directory, report_dir, 'report.zip'))
-shutil.move(os.path.join('report.zip'), os.path.join(project_directory, report_dir))
+shutil.make_archive('report', 'zip', os.path.join(method_directory, report_directory))
+if os.path.exists(os.path.join(method_directory, report_directory, 'report.zip')):
+    os.remove(os.path.join(method_directory, report_directory, 'report.zip'))
+shutil.move(os.path.join('report.zip'), os.path.join(method_directory, report_directory))
