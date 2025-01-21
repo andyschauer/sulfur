@@ -14,13 +14,13 @@ __authors__ = "Andy Schauer, Ursula Jongebloed"
 __email__ = "aschauer@uw.edu"
 __last_modified__ = "2024-06-09"
 __version__ = "4.2"
-__copyright__ = "Copyright 2024, Andy Schauer"
+__copyright__ = "Copyright 2025, Andy Schauer"
 __license__ = "Apache 2.0"
 __acknowledgements__ = "Alli Moon, Drew Pronovost"
 
 
 refmat_list = ['Ag2S', 'BaSO4', 'ZnS']
-knowns_list = refmat_list[:] + ['blank', 'qtycal_BaSO4', 'qtycal_Na2SO4', 'void', 'zero', 'Ag2SO4', 'NIST1547', 'SodSul_2']
+knowns_list = refmat_list[:] + ['blank', 'qtycal_BaSO4', 'qtycal_Na2SO4', 'void', 'zero', 'Ag2SO4', 'NIST1547', 'SodSul_1', 'SodSul_2', 'SodSul_3', 'SodSul_4', 'SodSul_5', 'SodSul_6', 'SodSul_7', 'SodSul_8']
 
 
 meta_headers = ['Identifier1', 'Analysis', 'Amount', 'Date', 'Time', 'Comment', 'Identifier2', 'Preparation', 'Method']

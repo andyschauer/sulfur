@@ -17,13 +17,14 @@ This script opens the shrekS_analysis_log.csv for sample diagnosis and calibrati
     version 4.1 - 2024.05.11 - changed lab import to isolab_lib, replaced old DIY least squares regression with numpy polyfit
     version 4.2 - 2024.05.12 - now using dateutil.parser because open .csv file in excel and saving changes the date and time format
     version 4.3 - 2024.06.09 - changed flag to trust, tried to incorporate CN code updates, 
+    version 4.4 - 2024.07.03 - added Amplitude figure
 """
 
 __authors__ = "Andy Schauer, Ursula Jongebloed"
 __email__ = "aschauer@uw.edu"
 __last_modified__ = "2024.06.09"
 __version__ = "4.3"
-__copyright__ = "Copyright 2024, Andy Schauer"
+__copyright__ = "Copyright 2025, Andy Schauer"
 __license__ = "Apache 2.0"
 __acknowledgements__ = "Alli Moon, Drew Pronovost"
 
@@ -232,15 +233,22 @@ add_calculation_note("peak area and d34S were blank corrected")
 
 
 # -------------------- Sqty vs Peak Area least squares fit --------------------
-qtycal_BaSO4['Sqty'] = Sqty[qtycal_BaSO4['index']]
-qtycal_BaSO4['Sfit'] = np.polyfit(qtycal_BaSO4['Sqty'], AreaAll_sam_norm[qtycal_BaSO4['index']], 1)
+if qtycal_BaSO4['index']:
+    qtycal_BaSO4['Sqty'] = Sqty[qtycal_BaSO4['index']]
+    qtycal_BaSO4['Sfit'] = np.polyfit(qtycal_BaSO4['Sqty'], AreaAll_sam_norm[qtycal_BaSO4['index']], 1)
 
+    # trying to find a better way to fit these data but still end up with something reasonable. 
+    #    Here, a slope 
+    A = qtycal_BaSO4['Sqty'][:,np.newaxis]
+    slope, _, _, _ = np.linalg.lstsq(A, AreaAll_sam_norm_blank_corr[qtycal_BaSO4['index']], rcond=None)
+    Sqty2_pred = AreaAll_sam_norm / slope
 
-# trying to find a better way to fit these data but still end up with something reasonable. 
-#    Here, a slope 
-A = qtycal_BaSO4['Sqty'][:,np.newaxis]
-slope, _, _, _ = np.linalg.lstsq(A, AreaAll_sam_norm_blank_corr[qtycal_BaSO4['index']], rcond=None)
-Sqty2_pred = AreaAll_sam_norm / slope
+else:
+    qtycal_BaSO4['Sqty'] = Sqty[qtycal_BaSO4['index']]
+    qtycal_BaSO4['Sfit'] = [1,1]
+    A = qtycal_BaSO4['Sqty'][:,np.newaxis]
+    slope = 1
+    Sqty2_pred = AreaAll_sam_norm / slope
 
 
 
@@ -284,13 +292,14 @@ d34S_residual_std = np.std(np.concatenate([eval(d34S_std_1)['d34S_residual'], ev
 
 
 # ---------- Isotope Drift Calculation ----------
-Sdrift_fit = np.polyfit(np.concatenate([Analysis[eval(d34S_std_1)['index']], Analysis[eval(d34S_std_2)['index']]]),
-                        np.concatenate([eval(d34S_std_1)['d34S_residual'], eval(d34S_std_2)['d34S_residual']]),
-                        1)
-Sdrift_corrfac = Sdrift_fit[0] * Analysis + Sdrift_fit[1]
-d34S_drift_corr = d34S_blank_corr - Sdrift_corrfac
+# Sdrift_fit = np.polyfit(np.concatenate([Analysis[eval(d34S_std_1)['index']], Analysis[eval(d34S_std_2)['index']]]),
+                        # np.concatenate([eval(d34S_std_1)['d34S_residual'], eval(d34S_std_2)['d34S_residual']]),
+                        # 1)
+# Sdrift_corrfac = Sdrift_fit[0] * Analysis + Sdrift_fit[1]
+# d34S_drift_corr = d34S_blank_corr - Sdrift_corrfac
 
-add_calculation_note("d34S was corrected for drift")
+d34S_drift_corr = d34S32S_sam
+add_calculation_note("d34S was NOT corrected for drift")
 
 
 
@@ -347,6 +356,19 @@ fig_n = 1
 
 if verbose:
 
+    figures[fig_n] = {}
+    figures[fig_n]['cap'] = f"""Figure {fig_n}. Working gas peak amplitude versus analysis number. """
+    figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="Analysis", y_axis_label="Working Gas Peak Area (Vs)", tools="pan, box_zoom, reset, save", active_drag="box_zoom")
+    figures[fig_n]['fig'].square(Analysis, Ampl64_wg, size=marker_sizes[0], line_color='black', fill_color='black')
+    figures[fig_n]['fig'].xaxis.formatter = NumeralTickFormatter(format="0")
+    figures[fig_n]['fig'].xaxis.axis_label_text_font_size = font_size
+    figures[fig_n]['fig'].yaxis.axis_label_text_font_size = font_size
+    figures[fig_n]['fig'].xaxis.major_label_text_font_size = font_size
+    figures[fig_n]['fig'].yaxis.major_label_text_font_size = font_size
+    figures[fig_n]['fig'].title.text_font_size = font_size
+    
+    fig_n += 1
+    
     figures[fig_n] = {}
     figures[fig_n]['cap'] = f"""Figure {fig_n}. Working gas peak area versus analysis number. If you see fluctuations, this is the reason to normalize sample peak area. Sample peak area is normalized by this working gas peak area to account for fluctuations in the mass spec sensitivity."""
     figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="Analysis", y_axis_label="Working Gas Peak Area (Vs)", tools="pan, box_zoom, reset, save", active_drag="box_zoom")
@@ -533,6 +555,32 @@ figures[fig_n]['fig'].legend.label_text_font_size = font_size
 fig_n += 1
 
 
+
+figures[fig_n] = {}
+figures[fig_n]['cap'] = f"""Figure {fig_n}. d34S residual vs Peak Area."""
+figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="AreaAll_sam", y_axis_label="residual d34S (permil)", tools="pan, box_zoom, reset, save", active_drag="box_zoom")
+figures[fig_n]['fig'].triangle(AreaAll_sam[BaSO4['index']], d34S32S_sam[BaSO4['index']] - np.nanmean(d34S32S_sam[BaSO4['index']]), legend_label="BaSO4", size=BaSO4['marker_size'], line_color='black', fill_color=BaSO4['marker_color'])
+figures[fig_n]['fig'].triangle(AreaAll_sam[Ag2S['index']], d34S32S_sam[Ag2S['index']] - np.nanmean(d34S32S_sam[Ag2S['index']]), legend_label="Ag2S", size=Ag2S['marker_size'], line_color='black', fill_color=Ag2S['marker_color'])
+figures[fig_n]['fig'].triangle(AreaAll_sam[ZnS['index']], d34S32S_sam[ZnS['index']] - np.nanmean(d34S32S_sam[ZnS['index']]), legend_label="ZnS", size=ZnS['marker_size'], line_color='black', fill_color=ZnS['marker_color'])
+# figures[fig_n]['fig'].square(Sqty_pred[SodSul_1['index']], d34S32S_sam[SodSul_1['index']] - np.nanmean(d34S32S_sam[SodSul_1['index']]), legend_label="SodSul_1", size=SodSul_1['marker_size'], line_color='black', fill_color=SodSul_1['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty_pred[SodSul_2['index']], d34S32S_sam[SodSul_2['index']] - np.nanmean(d34S32S_sam[SodSul_2['index']]), legend_label="SodSul_2", size=SodSul_2['marker_size'], line_color='black', fill_color=SodSul_2['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty_pred[SodSul_3['index']], d34S32S_sam[SodSul_3['index']] - np.nanmean(d34S32S_sam[SodSul_3['index']]), legend_label="SodSul_3", size=SodSul_3['marker_size'], line_color='black', fill_color=SodSul_3['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty_pred[SodSul_4['index']], d34S32S_sam[SodSul_4['index']] - np.nanmean(d34S32S_sam[SodSul_4['index']]), legend_label="SodSul_4", size=SodSul_4['marker_size'], line_color='black', fill_color=SodSul_4['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty_pred[SodSul_5['index']], d34S32S_sam[SodSul_5['index']] - np.nanmean(d34S32S_sam[SodSul_5['index']]), legend_label="SodSul_5", size=SodSul_5['marker_size'], line_color='black', fill_color=SodSul_5['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty_pred[SodSul_6['index']], d34S32S_sam[SodSul_6['index']] - np.nanmean(d34S32S_sam[SodSul_6['index']]), legend_label="SodSul_6", size=SodSul_6['marker_size'], line_color='black', fill_color=SodSul_6['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty_pred[SodSul_7['index']], d34S32S_sam[SodSul_7['index']] - np.nanmean(d34S32S_sam[SodSul_7['index']]), legend_label="SodSul_7", size=SodSul_7['marker_size'], line_color='black', fill_color=SodSul_7['marker_color'])
+# figures[fig_n]['fig'].diamond(Sqty_pred[SodSul_8['index']], d34S32S_sam[SodSul_8['index']] - np.nanmean(d34S32S_sam[SodSul_8['index']]), legend_label="SodSul_8", size=SodSul_8['marker_size'], line_color='black', fill_color=SodSul_8['marker_color'])
+figures[fig_n]['fig'].xaxis.formatter = NumeralTickFormatter(format="0")
+figures[fig_n]['fig'].xaxis.axis_label_text_font_size = font_size
+figures[fig_n]['fig'].yaxis.axis_label_text_font_size = font_size
+figures[fig_n]['fig'].xaxis.major_label_text_font_size = font_size
+figures[fig_n]['fig'].yaxis.major_label_text_font_size = font_size
+figures[fig_n]['fig'].title.text_font_size = font_size
+figures[fig_n]['fig'].legend.label_text_font_size = font_size
+
+fig_n += 1
+
+
 figures[fig_n] = {}
 figures[fig_n]['cap'] = f"""Figure {fig_n}. d34S vcdt vs d34S measured."""
 figures[fig_n]['fig'] = figure(width=1800, height=700, x_axis_label="d34S measured", y_axis_label="d34S VCDT (permil)", tools="pan, box_zoom, reset, save", active_drag="box_zoom")
@@ -694,11 +742,20 @@ with open(log_summary_page, 'w') as html_page:
     html_page.write(footer)
 
 
-webbrowser.open(log_summary_page)
 
 
 # create zip file of entire report directory
-shutil.make_archive('report', 'zip', os.path.join(method_directory, report_directory))
-if os.path.exists(os.path.join(method_directory, report_directory, 'report.zip')):
-    os.remove(os.path.join(method_directory, report_directory, 'report.zip'))
-shutil.move(os.path.join('report.zip'), os.path.join(method_directory, report_directory))
+# try:
+    # shutil.make_archive('report', 'zip', os.path.join(method_directory, report_directory))
+# except PermissionError as e:
+    # print(f"PermissionError: {e}")
+# except Exception as e:
+    # print(f"An error occurred: {e}")
+    
+# if os.path.exists(os.path.join(method_directory, report_directory, 'report.zip')):
+    # os.remove(os.path.join(method_directory, report_directory, 'report.zip'))
+# shutil.move(os.path.join('report.zip'), os.path.join(method_directory, report_directory))
+
+
+
+webbrowser.open(log_summary_page)

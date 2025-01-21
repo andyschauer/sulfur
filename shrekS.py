@@ -21,7 +21,7 @@ __authors__ = "Andy Schauer, Ursula Jongebloed"
 __email__ = "aschauer@uw.edu"
 __last_modified__ = "2024.06.12"
 __version__ = "4.2"
-__copyright__ = "Copyright 2024, Andy Schauer"
+__copyright__ = "Copyright 2025, Andy Schauer"
 __license__ = "Apache 2.0"
 __acknowledgements__ = "Alli Moon, Drew Pronovost"
 
@@ -31,6 +31,7 @@ __acknowledgements__ = "Alli Moon, Drew Pronovost"
 import csv
 import json
 import isolab_lib
+from numpy import where
 import os
 import re
 from shrekS_lib import *
@@ -109,7 +110,7 @@ project_directory = isolab_lib.get_path("shrekS", "project")
 new_data_directory = 'rawdata_new'
 archive_data_directory = 'rawdata_archive'
 junk_data_directory = 'rawdata_junk'
-log_file_name = 'shrekS_analysis_log.csv'
+log_file_name = 'shrekS_exhaustive_analysis_log.csv'
 
 if os.path.isdir(project_directory) is False:
     print('directory does not exist...exiting....')

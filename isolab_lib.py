@@ -7,7 +7,7 @@ __author__ = "Andy Schauer"
 __email__ = "aschauer@uw.edu"
 __last_modified__ = "2024-04-16"
 __version__ = "2.0"
-__copyright__ = "Copyright 2024, Andy Schauer"
+__copyright__ = "Copyright 2025, Andy Schauer"
 __license__ = "Apache 2.0"
 
 
